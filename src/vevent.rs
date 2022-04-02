@@ -6,7 +6,10 @@ use crate::{
     TzIdDateTime,
 };
 use chrono::{Date, DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use std::{num::ParseIntError, ops::Range};
+use std::{
+    num::ParseIntError,
+    ops::{Range, Sub},
+};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -81,7 +84,24 @@ impl VEvent {
         log::trace!("called next_occurrence_since({:?}, {:?})", self, dt);
 
         for occurrence in self.into_iter() {
-            let event_overlap = dt.intersects(occurrence.start, occurrence.end)?;
+            let event_overlap = {
+                // handle the special case of start and end dates being WholeDay. We consider the
+                // final date the last second of the previous end date.
+                if let (DateOrDateTime::WholeDay(wd_start), DateOrDateTime::WholeDay(wd_end)) =
+                    (occurrence.start, occurrence.end)
+                {
+                    dt.intersects(
+                        wd_start.and_hms(0, 0, 0).into(),
+                        wd_end
+                            .and_hms(0, 0, 0)
+                            .sub(chrono::Duration::seconds(1))
+                            .into(),
+                    )?
+                } else {
+                    dt.intersects(occurrence.start, occurrence.end)?
+                }
+            };
+
             log::debug!("event_overlap == {:?} ==> {:?}", occurrence, event_overlap);
 
             match event_overlap {
@@ -90,7 +110,7 @@ impl VEvent {
                     return Ok(Some(OccurrenceResult {
                         occurrence,
                         event_overlap,
-                    }))
+                    }));
                 }
             }
             // else carry on!

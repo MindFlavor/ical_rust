@@ -14,7 +14,7 @@ mod vtimezone;
 
 use crate::ical_line_parser::ICalLineParser;
 use block::Block;
-use chrono::{Local, Utc};
+use chrono::{Date, Local, Utc};
 pub use date_or_date_time::*;
 use std::collections::HashMap;
 pub use tzid_date_time::*;
@@ -130,8 +130,8 @@ fn main() {
 
     //item.next_occurrence_since(dt).unwrap();
 
-    //// find occurrences tomorrow!
-    for delta in 0..6 {
+    // find occurrences tomorrow!
+    for delta in 2..4 {
         let dt = Utc::now().date() + chrono::Duration::days(delta);
 
         println!("\n\tdt == {:?}", dt);
@@ -144,7 +144,7 @@ fn main() {
                     _ => {
                         let a = match next_occurrence.occurrence.start {
                             DateOrDateTime::DateTime(dt) => dt,
-                            _ => panic!("unsupported wholeday"),
+                            DateOrDateTime::WholeDay(wd) => wd.and_hms(0, 0, 0),
                         };
                         let local = a.with_timezone(&Local);
 
@@ -161,7 +161,7 @@ fn main() {
     let events_to_check = cal
         .events
         .iter()
-        .filter(|e| e.summary == "Prova timezone")
+        .filter(|e| e.summary == "Esame papà")
         .collect::<Vec<_>>();
 
     println!("\nevents_to_check == {:#?}", events_to_check);
