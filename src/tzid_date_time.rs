@@ -1,4 +1,4 @@
-use chrono::{DateTime, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use std::{fmt::Debug, str::FromStr};
 use thiserror::Error;
@@ -33,7 +33,7 @@ impl<T: TimeZone> From<DateTime<T>> for TzIdDateTime {
     fn from(dt: DateTime<T>) -> Self {
         Self {
             time_zone: chrono_tz::UTC,
-            date_time: dt.with_timezone(&Utc).into(),
+            date_time: DateOrDateTime::DateTime(dt.with_timezone(&Utc)),
         }
     }
 }
@@ -53,16 +53,16 @@ impl TryFrom<&str> for TzIdDateTime {
             if let LocalResult::Single(d) = tz.from_local_datetime(&date_time) {
                 Ok(Self {
                     time_zone: tz,
-                    date_time: d.with_timezone(&Utc).into(),
+                    date_time: DateOrDateTime::DateTime(d.with_timezone(&Utc)),
                 })
             } else {
                 Err(TzIdDateTimeFormatError::AmbiguousTimeZone)
             }
         } else if let Some(line) = line.strip_prefix("VALUE=DATE:") {
-            let date = Utc.from_utc_date(&NaiveDate::parse_from_str(line, "%Y%m%d")?);
+            let date = Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(line, "%Y%m%d")?);
             Ok(Self {
                 time_zone: chrono_tz::UTC,
-                date_time: date.into(),
+                date_time: DateOrDateTime::WholeDay(date),
             })
         } else {
             Err(TzIdDateTimeFormatError::MissingTZIDToken)
