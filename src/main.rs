@@ -46,7 +46,7 @@ fn main() {
     //println!("ical_lines == {:?}", ical_lines);
 
     let block: Block = ical_lines.try_into().unwrap();
-    println!("block == {:?}\n", block);
+    println!("block == {block:?}\n");
 
     let hm = block.inner_blocks.iter().map(|b| b.name()).fold(
         HashMap::new(),
@@ -56,16 +56,16 @@ fn main() {
             accum
         },
     );
-    println!("hm== {:?}\n", hm);
+    println!("hm== {hm:?}\n");
 
     block
         .inner_blocks
         .iter()
         .filter(|b| b.name == "VTIMEZONE")
-        .for_each(|b| println!("b == {:?}", b));
+        .for_each(|b| println!("b == {b:?}"));
 
     let cal: VCalendar = whole_file.as_str().try_into().unwrap();
-    println!("\n cal== {:?}\n", cal);
+    println!("\n cal== {cal:?}\n");
 
     //let v_calendar = VCalendar::try_from(contents).unwrap();
 

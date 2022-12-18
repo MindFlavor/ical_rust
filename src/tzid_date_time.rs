@@ -48,6 +48,7 @@ impl TryFrom<&str> for TzIdDateTime {
             let tz: Tz = tokens.next().unwrap().parse().unwrap();
 
             let date_time = tokens.next().unwrap();
+
             let date_time = NaiveDateTime::parse_from_str(date_time, "%Y%m%dT%H%M%S")?;
 
             if let LocalResult::Single(d) = tz.from_local_datetime(&date_time) {
@@ -59,7 +60,10 @@ impl TryFrom<&str> for TzIdDateTime {
                 Err(TzIdDateTimeFormatError::AmbiguousTimeZone)
             }
         } else if let Some(line) = line.strip_prefix("VALUE=DATE:") {
-            let date = Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(line, "%Y%m%d")?);
+            let date = Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(
+                &format!("{line}T000000"),
+                "%Y%m%dT%H%M%S",
+            )?);
             Ok(Self {
                 time_zone: chrono_tz::UTC,
                 date_time: DateOrDateTime::WholeDay(date),

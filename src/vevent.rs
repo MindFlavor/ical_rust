@@ -137,6 +137,8 @@ impl TryFrom<Block> for VEvent {
     type Error = VEventFormatError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
+        println!("VEvent::try_from({block:?})");
+
         let mut dt_created = None;
         let mut dt_last_modified = None;
         let mut dt_start: Option<DateOrDateTime> = None;
@@ -159,6 +161,8 @@ impl TryFrom<Block> for VEvent {
             } else {
                 None
             };
+
+            println!("tag before == {tag}");
 
             match tag {
                 "LAST-MODIFIED" => {
@@ -230,6 +234,8 @@ impl TryFrom<Block> for VEvent {
             } else {
                 None
             };
+
+            println!("tag second == {tag}, extra == {extra:?}");
 
             match tag {
                 "ORGANIZER" => {
@@ -306,6 +312,7 @@ impl<'a> IntoIterator for &'a VEvent {
 }
 
 pub(crate) fn string_to_date_or_datetime(s: &str) -> Result<DateOrDateTime, chrono::ParseError> {
+    println!("string_to_date_or_datetime({s})");
     Ok(if s.len() == 8 {
         let date = string_to_date(s)?;
         DateOrDateTime::WholeDay(
@@ -318,6 +325,7 @@ pub(crate) fn string_to_date_or_datetime(s: &str) -> Result<DateOrDateTime, chro
 }
 
 fn string_to_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
+    println!("string_to_datetime({s})");
     Ok(if s.ends_with('Z') {
         DateTime::<FixedOffset>::parse_from_str(s, "%Y%m%dT%H%M%S%#z")?.with_timezone(&Utc)
     } else {
@@ -332,8 +340,9 @@ fn string_to_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
 }
 
 fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
+    println!("string_to_date({s})");
     Ok(DateTime::<Local>::from_utc(
-        NaiveDateTime::parse_from_str(s, "%Y%m%d")?,
+        NaiveDateTime::parse_from_str(&format!("{s}T000000"), "%Y%m%dT%H%M%S")?,
         Local::now().offset().to_owned(),
     )
     .with_timezone(&Utc))
@@ -342,5 +351,6 @@ fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
 fn to_tziddate_or_date(
     s: &str,
 ) -> Result<DateOrDateTime, crate::tzid_date_time::TzIdDateTimeFormatError> {
+    println!("to_tziddate_or_date({s})");
     Ok(s.parse::<TzIdDateTime>()?.date_time)
 }
