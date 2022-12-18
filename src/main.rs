@@ -163,7 +163,7 @@ fn main() {
                 + chrono::Duration::days(delta),
         );
 
-        println!("\n\tdt == {:?}", dt);
+        println!("\n\tdt == {dt:?}");
 
         for event in cal.events.iter() {
             let next_occurrence = event.next_occurrence_since(dt).unwrap();
@@ -195,7 +195,7 @@ fn main() {
         .filter(|e| e.summary == "Esame papà")
         .collect::<Vec<_>>();
 
-    println!("\nevents_to_check == {:#?}", events_to_check);
+    println!("\nevents_to_check == {events_to_check:#?}");
 
     //let dt = Utc::now().date() + chrono::Duration::days(3);
     //println!("\nevent to check == {:?}", event_to_check);
