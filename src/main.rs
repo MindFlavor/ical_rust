@@ -40,32 +40,32 @@ fn main() {
         EventOverlap::StartsPastEndsSameDay
     );
 
-    let whole_file = std::fs::read_to_string("/home/mindflavor/tmp/basic.ics").unwrap();
-    let contents = whole_file.split("\r\n").collect::<Vec<_>>();
-    let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
-    //println!("ical_lines == {:?}", ical_lines);
+    let whole_file = std::fs::read_to_string("/home/mindflavor/tmp/basic.ics.1").unwrap();
+    //let contents = whole_file.split("\r\n").collect::<Vec<_>>();
+    //let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
+    ////println!("ical_lines == {:?}", ical_lines);
 
-    let block: Block = ical_lines.try_into().unwrap();
-    println!("block == {block:?}\n");
+    //let block: Block = ical_lines.try_into().unwrap();
+    //println!("block == {block:?}\n");
 
-    let hm = block.inner_blocks.iter().map(|b| b.name()).fold(
-        HashMap::new(),
-        |mut accum: HashMap<&str, u32>, item| {
-            let v = accum.entry(item).or_insert(0);
-            *v += 1;
-            accum
-        },
-    );
-    println!("hm== {hm:?}\n");
+    //let hm = block.inner_blocks.iter().map(|b| b.name()).fold(
+    //    HashMap::new(),
+    //    |mut accum: HashMap<&str, u32>, item| {
+    //        let v = accum.entry(item).or_insert(0);
+    //        *v += 1;
+    //        accum
+    //    },
+    //);
+    //println!("hm== {hm:?}\n");
 
-    block
-        .inner_blocks
-        .iter()
-        .filter(|b| b.name == "VTIMEZONE")
-        .for_each(|b| println!("b == {b:?}"));
+    //block
+    //    .inner_blocks
+    //    .iter()
+    //    .filter(|b| b.name == "VTIMEZONE")
+    //    .for_each(|b| println!("b == {b:?}"));
 
     let cal: VCalendar = whole_file.as_str().try_into().unwrap();
-    println!("\n cal== {cal:?}\n");
+    //println!("\n cal== {cal:?}\n");
 
     //let v_calendar = VCalendar::try_from(contents).unwrap();
 
@@ -149,41 +149,27 @@ fn main() {
     //item.next_occurrence_since(dt).unwrap();
 
     // find occurrences tomorrow!
-    for delta in 2..4 {
-        let dt = DateOrDateTime::WholeDay(
-            Utc.with_ymd_and_hms(
-                Utc::now().year(),
-                Utc::now().month(),
-                Utc::now().day(),
-                0,
-                0,
-                0,
-            )
-            .unwrap()
-                + chrono::Duration::days(delta),
-        );
+    let dt = DateOrDateTime::DateTime(Utc::now());
+    println!("\n\tdt == {dt:?}");
 
-        println!("\n\tdt == {dt:?}");
+    for event in cal.events.iter() {
+        let next_occurrence = event.next_occurrence_since(dt).unwrap();
+        if let Some(next_occurrence) = next_occurrence {
+            match next_occurrence.event_overlap {
+                EventOverlap::StartsFuture | EventOverlap::FinishesPast => continue,
+                _ => {
+                    let a = match next_occurrence.occurrence.start {
+                        DateOrDateTime::DateTime(dt) => dt,
+                        DateOrDateTime::WholeDay(wd) => Utc
+                            .with_ymd_and_hms(wd.year(), wd.month(), wd.day(), 0, 0, 0)
+                            .unwrap(),
+                    };
+                    let local = a.with_timezone(&Local);
 
-        for event in cal.events.iter() {
-            let next_occurrence = event.next_occurrence_since(dt).unwrap();
-            if let Some(next_occurrence) = next_occurrence {
-                match next_occurrence.event_overlap {
-                    EventOverlap::StartsFuture | EventOverlap::FinishesPast => continue,
-                    _ => {
-                        let a = match next_occurrence.occurrence.start {
-                            DateOrDateTime::DateTime(dt) => dt,
-                            DateOrDateTime::WholeDay(wd) => Utc
-                                .with_ymd_and_hms(wd.year(), wd.month(), wd.day(), 0, 0, 0)
-                                .unwrap(),
-                        };
-                        let local = a.with_timezone(&Local);
-
-                        println!(
-                            "event {} ==> {:?} (local : {:?})",
-                            event.summary, next_occurrence.occurrence, local
-                        );
-                    }
+                    println!(
+                        "event.summary \"{}\" ==> {next_occurrence:?} (local : {local:?})",
+                        event.summary
+                    );
                 }
             }
         }

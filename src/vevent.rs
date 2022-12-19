@@ -68,6 +68,11 @@ pub struct OccurrenceResult {
     pub event_overlap: EventOverlap,
 }
 
+fn midnight(d: DateTime<Utc>) -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
+        .unwrap()
+}
+
 impl VEvent {
     pub fn first_occurrence(&self) -> DateOrDateTime {
         self.dt_start
@@ -77,7 +82,7 @@ impl VEvent {
         &self,
         dt: DateOrDateTime,
     ) -> Result<Option<OccurrenceResult>, DateIntersectError> {
-        log::trace!("called next_occurrence_since({:?}, {:?})", self, dt);
+        //println!("called next_occurrence_since({self:?}, {dt:?})");
 
         for occurrence in self.into_iter() {
             let event_overlap = {
@@ -87,28 +92,8 @@ impl VEvent {
                     (occurrence.start, occurrence.end)
                 {
                     dt.intersects(
-                        DateOrDateTime::DateTime(
-                            Utc.with_ymd_and_hms(
-                                wd_start.year(),
-                                wd_start.month(),
-                                wd_start.day(),
-                                0,
-                                0,
-                                0,
-                            )
-                            .unwrap(),
-                        ),
-                        DateOrDateTime::DateTime(
-                            Utc.with_ymd_and_hms(
-                                wd_end.year(),
-                                wd_end.month(),
-                                wd_end.day(),
-                                0,
-                                0,
-                                0,
-                            )
-                            .unwrap(),
-                        ),
+                        DateOrDateTime::DateTime(midnight(wd_start)),
+                        DateOrDateTime::DateTime(midnight(wd_end) - chrono::Duration::seconds(1)),
                     )?
                 } else {
                     dt.intersects(occurrence.start, occurrence.end)?

@@ -303,7 +303,7 @@ impl DateOrDateTime {
         dt_start: DateOrDateTime,
         dt_end: DateOrDateTime,
     ) -> Result<EventOverlap, DateIntersectError> {
-        log::trace!("intersects({:?}, {:?}, {:?})", self, dt_start, dt_end);
+        log::trace!("intersects({self:?}, dt_start == {dt_start:?}, dt_end == {dt_end:?})");
 
         match self {
             DateOrDateTime::WholeDay(day) => {
@@ -337,14 +337,15 @@ impl DateOrDateTime {
                 };
                 let dt_end = match dt_end {
                     DateOrDateTime::DateTime(dt) => dt,
-                    DateOrDateTime::WholeDay(d) => {
-                        Utc.with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
-                            .unwrap()
-                            + Duration::days(1)
-                    }
+                    DateOrDateTime::WholeDay(d) => Utc
+                        .with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
+                        .unwrap(),
                 };
 
-                match (dt_start.cmp(&dt), dt_end.cmp(&dt)) {
+                match (
+                    dt_start.date_naive().cmp(&dt.date_naive()),
+                    dt_end.date_naive().cmp(&dt.date_naive()),
+                ) {
                     (Ordering::Less, Ordering::Less) => Ok(EventOverlap::FinishesPast),
                     (Ordering::Less, Ordering::Equal) => Ok(EventOverlap::StartsPastEndsSameDay),
                     (Ordering::Less, Ordering::Greater) => Ok(EventOverlap::StartsPastEndsFuture),
@@ -751,7 +752,7 @@ mod tests {
         );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
-            EventOverlap::StartsPastEndsFuture
+            EventOverlap::StartsPastEndsSameDay
         );
 
         let dt_start = DateOrDateTime::DateTime(
@@ -766,7 +767,7 @@ mod tests {
         );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
-            EventOverlap::StartsFuture
+            EventOverlap::StartSameDayEndsSameDay
         );
 
         let dt_start = DateOrDateTime::DateTime(
@@ -781,7 +782,7 @@ mod tests {
         );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
-            EventOverlap::StartsPastEndsFuture
+            EventOverlap::StartsSameDayEndsFuture
         );
 
         // Date instead of DateTime
@@ -797,7 +798,7 @@ mod tests {
         );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
-            EventOverlap::StartsPastEndsFuture
+            EventOverlap::StartsSameDayEndsFuture
         );
 
         let dt_start = DateOrDateTime::WholeDay(
@@ -812,7 +813,7 @@ mod tests {
         );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
-            EventOverlap::StartsPastEndsFuture
+            EventOverlap::StartsPastEndsSameDay
         );
 
         let dt_start = DateOrDateTime::WholeDay(
@@ -827,7 +828,7 @@ mod tests {
         );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
-            EventOverlap::StartsPastEndsFuture
+            EventOverlap::StartSameDayEndsSameDay
         );
     }
 }
