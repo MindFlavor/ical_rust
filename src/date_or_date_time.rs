@@ -1,5 +1,5 @@
 use crate::by_day::{ByDay, Delta};
-use chrono::{Date, DateTime, Datelike, Duration, LocalResult, TimeZone, Timelike, Utc, Weekday};
+use chrono::{DateTime, Datelike, Duration, LocalResult, TimeZone, Timelike, Utc, Weekday};
 use std::{
     cmp::Ordering,
     ops::{Add, Sub},
@@ -14,7 +14,7 @@ pub enum SubstitutionError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DateOrDateTime {
-    WholeDay(Date<Utc>),
+    WholeDay(DateTime<Utc>),
     DateTime(DateTime<Utc>),
 }
 
@@ -44,36 +44,52 @@ impl DateOrDateTime {
         minute: Option<u32>,
         second: Option<u32>,
     ) -> Result<Self, SubstitutionError> {
-        let date = Utc.ymd(
-            year.unwrap_or_else(|| self.year()),
-            month.unwrap_or_else(|| self.month()),
-            day.unwrap_or_else(|| self.day()),
-        );
+        let date = Utc
+            .with_ymd_and_hms(
+                year.unwrap_or_else(|| self.year()),
+                month.unwrap_or_else(|| self.month()),
+                day.unwrap_or_else(|| self.day()),
+                0,
+                0,
+                0,
+            )
+            .unwrap();
 
         Ok(match self {
             DateOrDateTime::WholeDay(_) => {
                 if hour.is_some() || minute.is_some() || second.is_some() {
                     return Err(SubstitutionError::ConstructingDateTimeBySubstitutingWholeDay);
                 }
-                date.into()
+                DateOrDateTime::WholeDay(date)
             }
-            DateOrDateTime::DateTime(dt) => date
-                .and_hms(
+            DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
+                Utc.with_ymd_and_hms(
+                    date.year(),
+                    date.month(),
+                    date.day(),
                     hour.unwrap_or_else(|| dt.hour()),
                     minute.unwrap_or_else(|| dt.minute()),
                     second.unwrap_or_else(|| dt.second()),
                 )
-                .into(),
+                .unwrap(),
+            ),
         })
     }
 
     pub fn substitute_time_with(self, time: impl Into<DateOrDateTime>) -> Self {
         match time.into() {
             DateOrDateTime::WholeDay(_) => self,
-            DateOrDateTime::DateTime(dt) => self
-                .date()
-                .and_hms(dt.hour(), dt.minute(), dt.second())
-                .into(),
+            DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
+                Utc.with_ymd_and_hms(
+                    dt.year(),
+                    dt.month(),
+                    dt.day(),
+                    dt.hour(),
+                    dt.minute(),
+                    dt.second(),
+                )
+                .unwrap(),
+            ),
         }
     }
 
@@ -154,16 +170,16 @@ impl DateOrDateTime {
         }
     }
 
-    pub fn equals_date(self, date: Date<Utc>) -> bool {
+    pub fn equals_date(self, date: DateTime<Utc>) -> bool {
         match self {
             DateOrDateTime::WholeDay(d) => date == d,
-            DateOrDateTime::DateTime(dt) => date.and_hms(0, 0, 0) == dt,
+            DateOrDateTime::DateTime(dt) => date == dt,
         }
     }
 
     pub fn equals_date_time(self, date_time: DateTime<Utc>) -> bool {
         match self {
-            DateOrDateTime::WholeDay(d) => d.and_hms(0, 0, 0) == date_time,
+            DateOrDateTime::WholeDay(d) => d == date_time,
             DateOrDateTime::DateTime(dt) => dt == date_time,
         }
     }
@@ -180,7 +196,7 @@ impl DateOrDateTime {
         // we need to loop because some months do not have all the dates. For example, february is
         // does not have 30,31 (and sometimes not even 29).
         let date = {
-            let mut date = Utc.ymd_opt(year, month, day);
+            let mut date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0);
             while matches!(date, LocalResult::None) {
                 month += 1;
                 if month > 12 {
@@ -188,38 +204,55 @@ impl DateOrDateTime {
                     year += 1;
                 }
 
-                date = Utc.ymd_opt(year, month, day);
+                date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0);
             }
             date.unwrap()
         };
 
         match self {
-            DateOrDateTime::WholeDay(_) => date.into(),
-            DateOrDateTime::DateTime(dt) => {
-                date.and_hms(dt.hour(), dt.minute(), dt.second()).into()
-            }
+            DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(date),
+            DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
+                Utc.with_ymd_and_hms(
+                    date.year(),
+                    date.month(),
+                    date.day(),
+                    dt.hour(),
+                    dt.minute(),
+                    dt.second(),
+                )
+                .unwrap(),
+            ),
         }
     }
 
     pub fn inc_year(&self, increment: u32) -> DateOrDateTime {
         match self {
             DateOrDateTime::WholeDay(d) => {
-                let d = Utc.ymd(d.year() + increment as i32, d.month(), d.day());
+                let d = Utc
+                    .with_ymd_and_hms(d.year() + increment as i32, d.month(), d.day(), 0, 0, 0)
+                    .unwrap();
                 Self::WholeDay(d)
             }
             DateOrDateTime::DateTime(d) => {
                 let d = Utc
-                    .ymd(d.year() + increment as i32, d.month(), d.day())
-                    .and_hms(d.hour(), d.minute(), d.second());
+                    .with_ymd_and_hms(
+                        d.year() + increment as i32,
+                        d.month(),
+                        d.day(),
+                        d.hour(),
+                        d.minute(),
+                        d.second(),
+                    )
+                    .unwrap();
                 Self::DateTime(d)
             }
         }
     }
 
-    pub fn date(self) -> Date<Utc> {
+    pub fn date(self) -> DateTime<Utc> {
         match self {
             DateOrDateTime::WholeDay(d) => d,
-            DateOrDateTime::DateTime(dt) => dt.date(),
+            DateOrDateTime::DateTime(dt) => dt,
         }
     }
 
@@ -274,8 +307,12 @@ impl DateOrDateTime {
 
         match self {
             DateOrDateTime::WholeDay(day) => {
-                let d_start = dt_start.date();
-                let d_end = dt_end.date();
+                let d_start = Utc
+                    .with_ymd_and_hms(dt_start.year(), dt_start.month(), dt_start.day(), 0, 0, 0)
+                    .unwrap();
+                let d_end = Utc
+                    .with_ymd_and_hms(dt_end.year(), dt_end.month(), dt_end.day(), 0, 0, 0)
+                    .unwrap();
 
                 match (d_start.cmp(&day), d_end.cmp(&day)) {
                     (Ordering::Less, Ordering::Less) => Ok(EventOverlap::FinishesPast),
@@ -294,11 +331,17 @@ impl DateOrDateTime {
             DateOrDateTime::DateTime(dt) => {
                 let dt_start = match dt_start {
                     DateOrDateTime::DateTime(dt) => dt,
-                    DateOrDateTime::WholeDay(d) => d.and_hms(0, 0, 0),
+                    DateOrDateTime::WholeDay(d) => Utc
+                        .with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
+                        .unwrap(),
                 };
                 let dt_end = match dt_end {
                     DateOrDateTime::DateTime(dt) => dt,
-                    DateOrDateTime::WholeDay(d) => d.and_hms(0, 0, 0) + Duration::days(1),
+                    DateOrDateTime::WholeDay(d) => {
+                        Utc.with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
+                            .unwrap()
+                            + Duration::days(1)
+                    }
                 };
 
                 match (dt_start.cmp(&dt), dt_end.cmp(&dt)) {
@@ -319,22 +362,12 @@ impl DateOrDateTime {
     }
 }
 
-impl<T: chrono::TimeZone> From<Date<T>> for DateOrDateTime {
-    fn from(d: Date<T>) -> Self {
-        Self::WholeDay(d.with_timezone(&Utc))
-    }
-}
-
-impl<T: chrono::TimeZone> From<DateTime<T>> for DateOrDateTime {
-    fn from(dt: DateTime<T>) -> Self {
-        Self::DateTime(dt.with_timezone(&Utc))
-    }
-}
-
 impl DateOrDateTime {
     pub fn succ_day(&self) -> DateOrDateTime {
         match self {
-            DateOrDateTime::WholeDay(whole) => DateOrDateTime::WholeDay(whole.succ()),
+            DateOrDateTime::WholeDay(whole) => {
+                DateOrDateTime::WholeDay(*whole + chrono::Duration::days(1))
+            }
             DateOrDateTime::DateTime(dt) => {
                 DateOrDateTime::DateTime(*dt + chrono::Duration::days(1))
             }
@@ -343,7 +376,7 @@ impl DateOrDateTime {
 
     pub fn as_datetime(&self) -> DateTime<Utc> {
         match self {
-            DateOrDateTime::WholeDay(day) => day.and_hms(0, 0, 0),
+            DateOrDateTime::WholeDay(day) => *day,
             DateOrDateTime::DateTime(dt) => *dt,
         }
     }
@@ -354,12 +387,12 @@ impl PartialOrd for DateOrDateTime {
         // convert in date time if necessary
         let self_dt = match self {
             DateOrDateTime::DateTime(dt) => *dt,
-            DateOrDateTime::WholeDay(dt) => dt.and_hms(0, 0, 0),
+            DateOrDateTime::WholeDay(dt) => *dt,
         };
 
         let other_dt = match other {
             DateOrDateTime::DateTime(dt) => *dt,
-            DateOrDateTime::WholeDay(dt) => dt.and_hms(0, 0, 0),
+            DateOrDateTime::WholeDay(dt) => *dt,
         };
 
         Some(self_dt.cmp(&other_dt))
@@ -377,12 +410,12 @@ impl Sub for DateOrDateTime {
 
     fn sub(self, rhs: Self) -> Self::Output {
         let dt_self = match self {
-            DateOrDateTime::WholeDay(d) => d.and_hms(0, 0, 0),
+            DateOrDateTime::WholeDay(d) => d,
             DateOrDateTime::DateTime(dt) => dt,
         };
 
         let dt_rhs = match rhs {
-            DateOrDateTime::WholeDay(d) => d.and_hms(0, 0, 0),
+            DateOrDateTime::WholeDay(d) => d,
             DateOrDateTime::DateTime(dt) => dt,
         };
 
@@ -395,8 +428,8 @@ impl Add<Duration> for DateOrDateTime {
 
     fn add(self, rhs: Duration) -> Self::Output {
         match self {
-            DateOrDateTime::WholeDay(day) => (day + rhs).into(),
-            DateOrDateTime::DateTime(dt) => (dt + rhs).into(),
+            DateOrDateTime::WholeDay(day) => Self::WholeDay(day + rhs),
+            DateOrDateTime::DateTime(dt) => Self::DateTime(dt + rhs),
         }
     }
 }
@@ -406,8 +439,8 @@ impl Sub<Duration> for DateOrDateTime {
 
     fn sub(self, rhs: Duration) -> Self::Output {
         match self {
-            DateOrDateTime::WholeDay(day) => (day - rhs).into(),
-            DateOrDateTime::DateTime(dt) => (dt - rhs).into(),
+            DateOrDateTime::WholeDay(day) => Self::WholeDay(day - rhs),
+            DateOrDateTime::DateTime(dt) => Self::DateTime(dt - rhs),
         }
     }
 }
@@ -415,23 +448,23 @@ impl Sub<Duration> for DateOrDateTime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDate, NaiveDateTime};
+    use chrono::NaiveDateTime;
 
     #[test]
     fn inc_month_simple() {
-        let date: DateOrDateTime = Utc
-            .from_local_date(
-                &NaiveDate::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(),
-            )
-            .unwrap()
-            .into();
-
-        let date_time: DateOrDateTime = Utc
-            .from_local_datetime(
+        let date: DateOrDateTime = DateOrDateTime::WholeDay(
+            Utc.from_local_datetime(
                 &NaiveDateTime::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(),
             )
-            .unwrap()
-            .into();
+            .unwrap(),
+        );
+
+        let date_time: DateOrDateTime = DateOrDateTime::WholeDay(
+            Utc.from_local_datetime(
+                &NaiveDateTime::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(),
+            )
+            .unwrap(),
+        );
 
         let next = date.inc_month(1);
         assert_eq!(date.year(), next.year());
@@ -444,12 +477,12 @@ mod tests {
 
     #[test]
     fn next_weekday() {
-        let date: DateOrDateTime = Utc
-            .from_local_date(
-                &NaiveDate::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(), //SAT
+        let date: DateOrDateTime = DateOrDateTime::WholeDay(
+            Utc.from_local_datetime(
+                &NaiveDateTime::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(), //SAT
             )
-            .unwrap()
-            .into();
+            .unwrap(),
+        );
 
         assert_eq!(date + Duration::days(6), date.next_weekday(Weekday::Fri));
         assert_eq!(date + Duration::days(1), date.next_weekday(Weekday::Sun));
@@ -458,12 +491,12 @@ mod tests {
 
     #[test]
     fn next_weekdays() {
-        let date: DateOrDateTime = Utc
-            .from_local_date(
-                &NaiveDate::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(), //SAT
+        let date: DateOrDateTime = DateOrDateTime::WholeDay(
+            Utc.from_local_datetime(
+                &NaiveDateTime::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(), //SAT
             )
-            .unwrap()
-            .into();
+            .unwrap(),
+        );
 
         assert_eq!(
             date + Duration::days(1),
@@ -485,12 +518,12 @@ mod tests {
 
     #[test]
     fn move_by_day() {
-        let date: DateOrDateTime = Utc
-            .from_local_date(
-                &NaiveDate::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(),
+        let date: DateOrDateTime = DateOrDateTime::WholeDay(
+            Utc.from_local_datetime(
+                &NaiveDateTime::parse_from_str("20220205T000000", "%Y%m%dT%H%M%S").unwrap(),
             )
-            .unwrap()
-            .into();
+            .unwrap(),
+        );
 
         let first_sunday = date.move_by_delta(&Delta::new(1, Weekday::Sun));
         assert_eq!(first_sunday.day(), 6);
@@ -501,140 +534,155 @@ mod tests {
 
     #[test]
     fn check_intersects_date() {
-        let e: DateOrDateTime = Date::<Utc>::from_utc(NaiveDate::from_ymd(2022, 2, 10), Utc).into();
+        let e: DateOrDateTime =
+            DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2022, 2, 10, 0, 0, 0).unwrap());
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220205T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220205T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::FinishesPast
         );
 
-        let dt_start = DateTime::parse_from_str("20300201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20300201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsSameDay
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsSameDay
         );
 
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartSameDayEndsSameDay
         );
 
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsSameDayEndsFuture
         );
 
         // Date instead of DateTime
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
-        let dt_end = DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
+        let dt_start = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsSameDayEndsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
+        let dt_start = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsSameDay
         );
 
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
+        let dt_start = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartSameDayEndsSameDay
@@ -643,129 +691,140 @@ mod tests {
 
     #[test]
     fn check_intersects_date_time() {
-        let e: DateOrDateTime = Date::<Utc>::from_utc(NaiveDate::from_ymd(2022, 2, 10), Utc)
-            .and_hms(8, 0, 0)
-            .into();
+        let e: DateOrDateTime =
+            DateOrDateTime::DateTime(Utc.with_ymd_and_hms(2022, 2, 10, 8, 0, 0).unwrap());
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220205T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220205T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::FinishesPast
         );
 
-        let dt_start = DateTime::parse_from_str("20300201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20300201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20390205T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220210T023000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
-        let dt_end = DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .into();
+        let dt_start = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20220210T023000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::DateTime(
+            DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture
         );
 
         // Date instead of DateTime
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
-        let dt_end = DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
+        let dt_start = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20250210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
+        let dt_start = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture
         );
 
-        let dt_start = DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
-        let dt_end = DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
-            .unwrap()
-            .with_timezone(&Utc)
-            .date()
-            .into();
+        let dt_start = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
+        let dt_end = DateOrDateTime::WholeDay(
+            DateTime::parse_from_str("20220210T183000Z", "%Y%m%dT%H%M%S%#z")
+                .unwrap()
+                .with_timezone(&Utc),
+        );
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartsPastEndsFuture

@@ -14,7 +14,7 @@ mod vtimezone;
 
 use crate::ical_line_parser::ICalLineParser;
 use block::Block;
-use chrono::{Date, Local, Utc};
+use chrono::{DateTime, Datelike, Local, TimeZone, Utc};
 pub use date_or_date_time::*;
 use std::collections::HashMap;
 pub use tzid_date_time::*;
@@ -22,13 +22,31 @@ pub use vcalendar::*;
 pub use vevent::*;
 
 fn main() {
+    let e: DateOrDateTime =
+        DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2022, 2, 10, 0, 0, 0).unwrap());
+
+    let dt_start = DateOrDateTime::DateTime(
+        DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
+            .unwrap()
+            .with_timezone(&Utc),
+    );
+    let dt_end = DateOrDateTime::DateTime(
+        DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
+            .unwrap()
+            .with_timezone(&Utc),
+    );
+    assert_eq!(
+        e.intersects(dt_start, dt_end).unwrap(),
+        EventOverlap::StartsPastEndsSameDay
+    );
+
     let whole_file = std::fs::read_to_string("/home/mindflavor/tmp/basic.ics").unwrap();
     let contents = whole_file.split("\r\n").collect::<Vec<_>>();
     let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
     //println!("ical_lines == {:?}", ical_lines);
 
     let block: Block = ical_lines.try_into().unwrap();
-    println!("block == {:?}\n", block);
+    println!("block == {block:?}\n");
 
     let hm = block.inner_blocks.iter().map(|b| b.name()).fold(
         HashMap::new(),
@@ -38,16 +56,16 @@ fn main() {
             accum
         },
     );
-    println!("hm== {:?}\n", hm);
+    println!("hm== {hm:?}\n");
 
     block
         .inner_blocks
         .iter()
         .filter(|b| b.name == "VTIMEZONE")
-        .for_each(|b| println!("b == {:?}", b));
+        .for_each(|b| println!("b == {b:?}"));
 
     let cal: VCalendar = whole_file.as_str().try_into().unwrap();
-    println!("\n cal== {:?}\n", cal);
+    println!("\n cal== {cal:?}\n");
 
     //let v_calendar = VCalendar::try_from(contents).unwrap();
 
@@ -132,9 +150,20 @@ fn main() {
 
     // find occurrences tomorrow!
     for delta in 2..4 {
-        let dt = Utc::now().date() + chrono::Duration::days(delta);
+        let dt = DateOrDateTime::WholeDay(
+            Utc.with_ymd_and_hms(
+                Utc::now().year(),
+                Utc::now().month(),
+                Utc::now().day(),
+                0,
+                0,
+                0,
+            )
+            .unwrap()
+                + chrono::Duration::days(delta),
+        );
 
-        println!("\n\tdt == {:?}", dt);
+        println!("\n\tdt == {dt:?}");
 
         for event in cal.events.iter() {
             let next_occurrence = event.next_occurrence_since(dt).unwrap();
@@ -144,7 +173,9 @@ fn main() {
                     _ => {
                         let a = match next_occurrence.occurrence.start {
                             DateOrDateTime::DateTime(dt) => dt,
-                            DateOrDateTime::WholeDay(wd) => wd.and_hms(0, 0, 0),
+                            DateOrDateTime::WholeDay(wd) => Utc
+                                .with_ymd_and_hms(wd.year(), wd.month(), wd.day(), 0, 0, 0)
+                                .unwrap(),
                         };
                         let local = a.with_timezone(&Local);
 
@@ -164,7 +195,7 @@ fn main() {
         .filter(|e| e.summary == "Esame papà")
         .collect::<Vec<_>>();
 
-    println!("\nevents_to_check == {:#?}", events_to_check);
+    println!("\nevents_to_check == {events_to_check:#?}");
 
     //let dt = Utc::now().date() + chrono::Duration::days(3);
     //println!("\nevent to check == {:?}", event_to_check);

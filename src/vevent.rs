@@ -5,11 +5,8 @@ use crate::{
     vevent_iterator::VEventIterator,
     TzIdDateTime,
 };
-use chrono::{Date, DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use std::{
-    num::ParseIntError,
-    ops::{Range, Sub},
-};
+use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
+use std::{num::ParseIntError, ops::Range};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -78,9 +75,8 @@ impl VEvent {
 
     pub fn next_occurrence_since(
         &self,
-        dt: impl Into<DateOrDateTime>,
+        dt: DateOrDateTime,
     ) -> Result<Option<OccurrenceResult>, DateIntersectError> {
-        let dt = dt.into();
         log::trace!("called next_occurrence_since({:?}, {:?})", self, dt);
 
         for occurrence in self.into_iter() {
@@ -91,11 +87,28 @@ impl VEvent {
                     (occurrence.start, occurrence.end)
                 {
                     dt.intersects(
-                        wd_start.and_hms(0, 0, 0).into(),
-                        wd_end
-                            .and_hms(0, 0, 0)
-                            .sub(chrono::Duration::seconds(1))
-                            .into(),
+                        DateOrDateTime::DateTime(
+                            Utc.with_ymd_and_hms(
+                                wd_start.year(),
+                                wd_start.month(),
+                                wd_start.day(),
+                                0,
+                                0,
+                                0,
+                            )
+                            .unwrap(),
+                        ),
+                        DateOrDateTime::DateTime(
+                            Utc.with_ymd_and_hms(
+                                wd_end.year(),
+                                wd_end.month(),
+                                wd_end.day(),
+                                0,
+                                0,
+                                0,
+                            )
+                            .unwrap(),
+                        ),
                     )?
                 } else {
                     dt.intersects(occurrence.start, occurrence.end)?
@@ -155,12 +168,9 @@ impl TryFrom<Block> for VEvent {
                         })?)?);
                 }
                 "DTSTART" => {
-                    dt_start = Some(
-                        string_to_datetime(
-                            extra.ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?,
-                        )?
-                        .into(),
-                    );
+                    dt_start = Some(DateOrDateTime::DateTime(string_to_datetime(
+                        extra.ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?,
+                    )?));
                 }
                 "DTEND" => {
                     dt_end =
@@ -297,7 +307,11 @@ impl<'a> IntoIterator for &'a VEvent {
 
 pub(crate) fn string_to_date_or_datetime(s: &str) -> Result<DateOrDateTime, chrono::ParseError> {
     Ok(if s.len() == 8 {
-        DateOrDateTime::WholeDay(string_to_date(s)?)
+        let date = string_to_date(s)?;
+        DateOrDateTime::WholeDay(
+            Utc.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
+                .unwrap(),
+        )
     } else {
         DateOrDateTime::DateTime(string_to_datetime(s)?)
     })
@@ -317,9 +331,9 @@ fn string_to_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
     })
 }
 
-fn string_to_date(s: &str) -> Result<Date<Utc>, chrono::ParseError> {
-    Ok(Date::<Local>::from_utc(
-        NaiveDate::parse_from_str(s, "%Y%m%d")?,
+fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
+    Ok(DateTime::<Local>::from_utc(
+        NaiveDateTime::parse_from_str(&format!("{s}T000000"), "%Y%m%dT%H%M%S")?,
         Local::now().offset().to_owned(),
     )
     .with_timezone(&Utc))
