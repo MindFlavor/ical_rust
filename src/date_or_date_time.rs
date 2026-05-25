@@ -185,13 +185,14 @@ impl DateOrDateTime {
     }
 
     pub fn inc_month(self, increment: u32) -> Self {
-        let delta_final_months = self.month() + increment;
-        let delta_years = delta_final_months / 12;
-        let final_month = std::cmp::max(delta_final_months - delta_years * 12, 1);
+        let total_months = (self.month() - 1) + increment;
+        let final_month = (total_months % 12) + 1;
+        let delta_years = total_months / 12;
 
         let mut year = self.year() + delta_years as i32;
         let mut month = final_month;
         let day = self.day();
+
 
         // we need to loop because some months do not have all the dates. For example, february is
         // does not have 30,31 (and sometimes not even 29).
@@ -475,6 +476,7 @@ mod tests {
         assert_eq!(date_time.year() + 1, next.year());
         assert_eq!(date_time.month(), next.month());
     }
+
 
     #[test]
     fn next_weekday() {
