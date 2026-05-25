@@ -56,9 +56,6 @@ END:VCALENDAR";
 }
 ```
 
-> [!NOTE]
-> Standard iCalendar payloads use CRLF (`\r\n`) line endings. `ical_rust` relies on CRLF line separators to accurately split and parse properties.
-
 ---
 
 ## 🔍 Core Architecture
