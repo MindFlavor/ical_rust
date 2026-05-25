@@ -7,7 +7,7 @@ edition = "2024"
 
 [dependencies]
 chrono = "0.4.44"
-chrono-tz = "0.8"
+chrono-tz = "0.10"
 log = "0.4.14"
 thiserror = "1.0.30"
 either = "1.6.1"
