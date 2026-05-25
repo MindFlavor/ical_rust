@@ -11,7 +11,7 @@ pub enum Frequency {
 
 #[derive(Error, Debug)]
 pub enum FrequencyParseError {
-    #[error("Unrecognized frquency {freq:?})")]
+    #[error("Unrecognized frequency {freq:?})")]
     UnrecognizedFrequency { freq: String },
 }
 
