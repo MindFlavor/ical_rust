@@ -1,34 +1,13 @@
 use crate::{
-    by_day::{ByDay, ByDayParseError},
+    by_day::ByDay,
     date_or_date_time::DateOrDateTime,
-    frequency::{Frequency, FrequencyParseError},
+    frequency::Frequency,
     string_to_date_or_datetime,
+    errors::RRuleParseError,
+
 };
 use std::str::FromStr;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum RRuleParseError {
-    #[error("Frequency parse error {err:?})")]
-    FrequencyParseError { err: FrequencyParseError },
-    #[error("Missing frequency token {line:?})")]
-    MissingFrequencyToken { line: String },
-    #[error("Missing next token after BYMONTH {line:?})")]
-    MissingrNextTokenAfterByMonth { line: String },
-    #[error("ParseIntError")]
-    ParseIntError(#[from] std::num::ParseIntError),
-    #[error("ParseDateOrDatetTimeError")]
-    ParseDateOrDatetTimeError(#[from] chrono::ParseError),
-    #[error("Missing either BYDAY or BYMONTHDAY {line:?})")]
-    MissingByDayOrByMonthDayError { line: String },
-    #[error("Missing BYDAY {line:?})")]
-    MissingByDayError { line: String },
-    #[error("ByDayParserError ({error:?}) line == {line:?}")]
-    ByDayParserError {
-        error: ByDayParseError,
-        line: String,
-    },
-}
 
 pub trait Options: std::fmt::Debug {
     fn common_options(&self) -> &CommonOptions;
@@ -144,7 +123,8 @@ impl FromStr for RRule {
                             common_options: CommonOptions::new(s, until, interval, count),
                         })
                     } else {
-                        return Err(RRuleParseError::MissingrNextTokenAfterByMonth {
+                        return Err(RRuleParseError::MissingNextTokenAfterByMonth {
+
                             line: s.to_owned(),
                         });
                     }

@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use thiserror::Error;
+use crate::errors::FrequencyParseError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Frequency {
@@ -7,12 +7,6 @@ pub enum Frequency {
     Monthly,
     Weekly,
     Daily,
-}
-
-#[derive(Error, Debug)]
-pub enum FrequencyParseError {
-    #[error("Unrecognized frequency {freq:?})")]
-    UnrecognizedFrequency { freq: String },
 }
 
 impl FromStr for Frequency {

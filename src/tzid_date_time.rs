@@ -1,25 +1,10 @@
 use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use std::{fmt::Debug, str::FromStr};
-use thiserror::Error;
 
 use crate::DateOrDateTime;
+use crate::errors::TzIdDateTimeParseError;
 
-#[derive(Error, Debug)]
-pub enum TzIdDateTimeFormatError {
-    #[error("Parse date time error")]
-    ParseIntError(#[from] chrono::ParseError),
-    #[error("Ambiguous timezone")]
-    AmbiguousTimeZone,
-    #[error("Missing TZID= token")]
-    MissingTZIDToken,
-    #[error("Invalid timezone: {0}")]
-    InvalidTimeZone(String),
-    #[error("Missing timezone part")]
-    MissingTimeZonePart,
-    #[error("Missing datetime part")]
-    MissingDateTimePart,
-}
 
 #[derive(Debug, Clone)]
 pub struct TzIdDateTime {
@@ -28,7 +13,7 @@ pub struct TzIdDateTime {
 }
 
 impl FromStr for TzIdDateTime {
-    type Err = TzIdDateTimeFormatError;
+    type Err = TzIdDateTimeParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.try_into()
@@ -45,16 +30,16 @@ impl<T: TimeZone> From<DateTime<T>> for TzIdDateTime {
 }
 
 impl TryFrom<&str> for TzIdDateTime {
-    type Error = TzIdDateTimeFormatError;
+    type Error = TzIdDateTimeParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
         if let Some(line) = line.strip_prefix("TZID=") {
             let mut tokens = line.split(':');
 
-            let tz_str = tokens.next().ok_or(TzIdDateTimeFormatError::MissingTimeZonePart)?;
-            let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| TzIdDateTimeFormatError::InvalidTimeZone(e.to_string()))?;
+            let tz_str = tokens.next().ok_or(TzIdDateTimeParseError::MissingTimeZonePart)?;
+            let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| TzIdDateTimeParseError::InvalidTimeZone(e.to_string()))?;
 
-            let date_time = tokens.next().ok_or(TzIdDateTimeFormatError::MissingDateTimePart)?;
+            let date_time = tokens.next().ok_or(TzIdDateTimeParseError::MissingDateTimePart)?;
 
             let date_time = NaiveDateTime::parse_from_str(date_time, "%Y%m%dT%H%M%S")?;
 
@@ -64,7 +49,7 @@ impl TryFrom<&str> for TzIdDateTime {
                     date_time: DateOrDateTime::DateTime(d.with_timezone(&Utc)),
                 })
             } else {
-                Err(TzIdDateTimeFormatError::AmbiguousTimeZone)
+                Err(TzIdDateTimeParseError::AmbiguousTimeZone)
             }
         } else if let Some(line) = line.strip_prefix("VALUE=DATE:") {
             let date = Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(
@@ -76,7 +61,7 @@ impl TryFrom<&str> for TzIdDateTime {
                 date_time: DateOrDateTime::WholeDay(date),
             })
         } else {
-            Err(TzIdDateTimeFormatError::MissingTZIDToken)
+            Err(TzIdDateTimeParseError::MissingTZIDToken)
         }
     }
 }

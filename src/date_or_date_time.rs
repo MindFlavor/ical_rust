@@ -4,13 +4,7 @@ use std::{
     cmp::Ordering,
     ops::{Add, Sub},
 };
-use thiserror::Error;
-
-#[derive(Error, Debug)]
-pub enum SubstitutionError {
-    #[error("Cannot construct a date time variant by substituting a Whole day")]
-    ConstructingDateTimeBySubstitutingWholeDay,
-}
+use crate::errors::{SubstitutionError, DateIntersectError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DateOrDateTime {
@@ -18,11 +12,7 @@ pub enum DateOrDateTime {
     DateTime(DateTime<Utc>),
 }
 
-#[derive(Error, Debug)]
-pub enum DateIntersectError {
-    #[error("Start date cannot be after end date")]
-    StartDateAfterEndDate,
-}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventOverlap {

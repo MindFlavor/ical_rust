@@ -1,6 +1,6 @@
 use crate::{block::Block, rrule::RRule};
 use chrono::NaiveDate;
-use thiserror::Error;
+use crate::errors::{VTimezoneParseError, VTimezoneOffsetParseError};
 
 #[derive(Debug, Clone)]
 pub struct VTimezone {
@@ -8,23 +8,7 @@ pub struct VTimezone {
     pub offsets: Vec<VTimezoneOffset>, // TODO: populate!
 }
 
-#[derive(Error, Debug)]
-pub enum VTimezoneParseError {
-    #[error("TZID tag not found")]
-    TZIDTagNotFound,
-    #[error("VTimezoneOffset parse error")]
-    VTimezoneOffsetParseError(#[from] VTimezoneOffsetParseError),
-}
 
-#[derive(Error, Debug)]
-pub enum VTimezoneOffsetParseError {
-    #[error("Missing mandatory semicolon (block {block:?})")]
-    MissingSemicolon { block: Block },
-    #[error("Missing mandatory field {field:?}. Block: {block:?}")]
-    MissingMandatoryField { block: Block, field: &'static str },
-    #[error("Unsupported tag {tag:?}, Block: {block:?}")]
-    UnsupportedTag { block: Block, tag: String },
-}
 
 #[derive(Debug, Clone)]
 pub struct VTimezoneOffset {

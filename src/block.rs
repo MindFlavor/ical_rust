@@ -1,10 +1,5 @@
-use thiserror::Error;
+use crate::errors::BlockParseError;
 
-#[derive(Error, Debug)]
-pub enum BlockParseError {
-    #[error("Block must start with BEGIN:")]
-    BlockNotStartingWithBEGIN,
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct Block {
