@@ -52,7 +52,7 @@ impl TryFrom<&str> for TzIdDateTime {
             let mut tokens = line.split(':');
 
             let tz_str = tokens.next().ok_or(TzIdDateTimeFormatError::MissingTimeZonePart)?;
-            let tz: Tz = tz_str.parse().map_err(TzIdDateTimeFormatError::InvalidTimeZone)?;
+            let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| TzIdDateTimeFormatError::InvalidTimeZone(e.to_string()))?;
 
             let date_time = tokens.next().ok_or(TzIdDateTimeFormatError::MissingDateTimePart)?;
 
