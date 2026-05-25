@@ -76,23 +76,6 @@ impl DateOrDateTime {
         })
     }
 
-    pub fn substitute_time_with(self, time: impl Into<DateOrDateTime>) -> Self {
-        match time.into() {
-            DateOrDateTime::WholeDay(_) => self,
-            DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
-                Utc.with_ymd_and_hms(
-                    dt.year(),
-                    dt.month(),
-                    dt.day(),
-                    dt.hour(),
-                    dt.minute(),
-                    dt.second(),
-                )
-                .unwrap(),
-            ),
-        }
-    }
-
     pub fn next_by_day(self, by_day: &ByDay) -> Self {
         match by_day {
             ByDay::Delta(delta) => self.move_by_delta(delta),
@@ -391,26 +374,15 @@ impl DateOrDateTime {
     }
 }
 
-impl PartialOrd for DateOrDateTime {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        // convert in date time if necessary
-        let self_dt = match self {
-            DateOrDateTime::DateTime(dt) => *dt,
-            DateOrDateTime::WholeDay(dt) => *dt,
-        };
-
-        let other_dt = match other {
-            DateOrDateTime::DateTime(dt) => *dt,
-            DateOrDateTime::WholeDay(dt) => *dt,
-        };
-
-        Some(self_dt.cmp(&other_dt))
+impl Ord for DateOrDateTime {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_datetime().cmp(&other.as_datetime())
     }
 }
 
-impl Ord for DateOrDateTime {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
+impl PartialOrd for DateOrDateTime {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
