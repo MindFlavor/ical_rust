@@ -2,6 +2,13 @@
 name = "ical_rust"
 version = "0.5.2"
 edition = "2024"
+description = "A lightweight, efficient, and robust iCalendar (ics) parser and recurrence expander library"
+license = "MIT"
+repository = "https://github.com/MindFlavor/ical_rust"
+homepage = "https://github.com/MindFlavor/ical_rust"
+readme = "README.md"
+keywords = ["icalendar", "ics", "parser", "rrule", "scheduling"]
+categories = ["parser-implementations", "date-and-time"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
