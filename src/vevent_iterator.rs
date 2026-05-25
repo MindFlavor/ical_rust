@@ -178,12 +178,20 @@ impl<'a> VEventIterator<'a> {
             }
 
             RRule::WeeklyByDay(rrule) => {
-                let next_occurrence = last_occurrence.next_by_day(&rrule.day);
-                log::debug!(
-                    "last_occurrence == {:?}, next_occurrence == {:?}",
-                    last_occurrence,
-                    next_occurrence
-                );
+                let interval = rrule.common_options().interval.unwrap_or(1) as i64;
+                let mut next_occurrence = last_occurrence.next_by_day(&rrule.day);
+
+                loop {
+                    let dt_start_monday = self.event.dt_start.date() - Duration::days(self.event.dt_start.date().weekday().num_days_from_monday() as i64);
+                    let next_monday = next_occurrence.date() - Duration::days(next_occurrence.date().weekday().num_days_from_monday() as i64);
+                    let diff_days = (next_monday - dt_start_monday).num_days();
+                    let diff_weeks = diff_days / 7;
+
+                    if diff_weeks % interval == 0 {
+                        break;
+                    }
+                    next_occurrence = next_occurrence.next_by_day(&rrule.day);
+                }
 
                 if !rrule.is_expired(next_occurrence) {
                     self.last_occurrence = Some(next_occurrence);
@@ -213,7 +221,10 @@ impl<'a> VEventIterator<'a> {
                     return None;
                 }
                 let mut next_occurrence = Some(last_occurrence);
-                let mut iterations = rrule.common_options().interval.unwrap_or(1);
+                let mut iterations = match rrule {
+                    RRule::WeeklyByDay(_) | RRule::YearlyByMonthByDay(_) => 1,
+                    _ => rrule.common_options().interval.unwrap_or(1),
+                };
                 while iterations > 0 && next_occurrence.is_some() {
                     next_occurrence =
                         self.get_next_occurrence_according_to_rule(next_occurrence.unwrap(), rrule);

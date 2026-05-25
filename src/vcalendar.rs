@@ -372,6 +372,48 @@ END:VCALENDAR";
         assert_eq!(occurrences[4].start.month(), 5);
         assert_eq!(occurrences[4].start.day(), 31);
     }
+
+    #[test]
+    fn test_bug10_weekly_by_day_interval_skipping() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230103\r\n\
+LAST-MODIFIED:20230103T170000Z\r\n\
+CREATED:20230103T170000Z\r\n\
+DTSTAMP:20230103T170000Z\r\n\
+SUMMARY:Bi-Weekly Multi-Day Meeting\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;COUNT=4\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        let event = &cal.events[0];
+
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 4);
+
+        // Occurrence 1: Tue Jan 3, 2023
+        assert_eq!(occurrences[0].start.year(), 2023);
+        assert_eq!(occurrences[0].start.month(), 1);
+        assert_eq!(occurrences[0].start.day(), 3);
+
+        // Occurrence 2: Thu Jan 5, 2023
+        assert_eq!(occurrences[1].start.year(), 2023);
+        assert_eq!(occurrences[1].start.month(), 1);
+        assert_eq!(occurrences[1].start.day(), 5);
+
+        // Occurrence 3: Tue Jan 17, 2023 (skipped week of Jan 9-15)
+        assert_eq!(occurrences[2].start.year(), 2023);
+        assert_eq!(occurrences[2].start.month(), 1);
+        assert_eq!(occurrences[2].start.day(), 17);
+
+        // Occurrence 4: Thu Jan 19, 2023
+        assert_eq!(occurrences[3].start.year(), 2023);
+        assert_eq!(occurrences[3].start.month(), 1);
+        assert_eq!(occurrences[3].start.day(), 19);
+    }
 }
 
 
