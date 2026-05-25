@@ -19,6 +19,8 @@ pub enum VCalendarParseError {
     UnsupportedTagError { tag: String },
     #[error("VEvent parse error")]
     VEventFormatError(#[from] crate::vevent::VEventFormatError),
+    #[error("Block parse error")]
+    BlockParseError(#[from] crate::block::BlockParseError),
 }
 
 impl TryFrom<&str> for VCalendar {
@@ -27,7 +29,7 @@ impl TryFrom<&str> for VCalendar {
     fn try_from(whole_text: &str) -> Result<Self, Self::Error> {
         let contents = whole_text.split("\r\n").collect::<Vec<_>>();
         let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
-        let block: Block = ical_lines.try_into().unwrap();
+        let block: Block = ical_lines.try_into()?;
 
         block.try_into()
     }
@@ -277,6 +279,13 @@ END:VCALENDAR";
         assert_eq!(occurrences[4].start.year(), 2023);
         assert_eq!(occurrences[4].start.month(), 1);
         assert_eq!(occurrences[4].start.day(), 7);
+    }
+
+    #[test]
+    fn test_bug6_missing_begin_tag_fails_safely() {
+        let ics_content = "INVALID CALENDAR CONTENT\r\nSUMMARY:Test";
+        let result = VCalendar::try_from(ics_content);
+        assert!(result.is_err(), "Expected an error instead of panic or successful parse");
     }
 }
 
