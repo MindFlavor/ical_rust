@@ -27,7 +27,8 @@ impl TryFrom<&str> for VCalendar {
     type Error = VCalendarParseError;
 
     fn try_from(whole_text: &str) -> Result<Self, Self::Error> {
-        let contents = whole_text.split("\r\n").collect::<Vec<_>>();
+        let normalized = whole_text.replace("\r\n", "\n");
+        let contents = normalized.split('\n').collect::<Vec<_>>();
         let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
         let block: Block = ical_lines.try_into()?;
 
@@ -286,6 +287,24 @@ END:VCALENDAR";
         let ics_content = "INVALID CALENDAR CONTENT\r\nSUMMARY:Test";
         let result = VCalendar::try_from(ics_content);
         assert!(result.is_err(), "Expected an error instead of panic or successful parse");
+    }
+
+    #[test]
+    fn test_bug7_lf_line_endings_supported() {
+        let ics_content = "BEGIN:VCALENDAR\n\
+BEGIN:VEVENT\n\
+DTSTART;TZID=Europe/Rome:20230101T090000\n\
+LAST-MODIFIED:20230101T170000Z\n\
+CREATED:20230101T170000Z\n\
+DTSTAMP:20230101T170000Z\n\
+SUMMARY:LF Line Ending Test\n\
+SEQUENCE:0\n\
+END:VEVENT\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        assert_eq!(cal.events[0].summary, "LF Line Ending Test");
     }
 }
 
