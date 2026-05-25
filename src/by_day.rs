@@ -34,9 +34,12 @@ impl FromStr for ByDay {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let tokens = s
             .split(',')
-            .into_iter()
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>();
+
+        if tokens.is_empty() {
+            return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });
+        }
 
         if tokens[0].len() > 2 {
             Ok(ByDay::Delta(tokens[0].parse()?))
