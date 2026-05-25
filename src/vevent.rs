@@ -228,7 +228,17 @@ impl TryFrom<Block> for VEvent {
                     let extra =
                         extra.ok_or_else(|| VEventFormatError::missing_semicolon(block.clone()))?;
                     log::trace!("parsing EXDATE ==> {}", extra);
-                    exdates.push(TzIdDateTime::try_from(extra)?);
+                    
+                    if let Some(colon_idx) = extra.find(':') {
+                        let prefix = &extra[0..=colon_idx];
+                        let values_str = &extra[colon_idx + 1..];
+                        for val in values_str.split(',').filter(|s| !s.is_empty()) {
+                            let reconstructed = format!("{}{}", prefix, val);
+                            exdates.push(TzIdDateTime::try_from(reconstructed.as_str())?);
+                        }
+                    } else {
+                        exdates.push(TzIdDateTime::try_from(extra)?);
+                    }
                 }
                 "DTSTART" => {
                     dt_start = Some(

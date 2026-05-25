@@ -230,6 +230,54 @@ END:VCALENDAR";
         assert_eq!(occurrences[2].start.month(), 11);
         assert_eq!(occurrences[2].start.day(), 28);
     }
+
+    #[test]
+    fn test_bug5_exdate_multi_value() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20230101T090000\r\n\
+LAST-MODIFIED:20230101T170000Z\r\n\
+CREATED:20230101T170000Z\r\n\
+DTSTAMP:20230101T170000Z\r\n\
+SUMMARY:Daily Standup\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=DAILY;COUNT=5\r\n\
+EXDATE;TZID=Europe/Rome:20230102T090000,20230104T090000\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        let event = &cal.events[0];
+
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 5, "Expected exactly 5 occurrences total");
+
+        // Occurrence 1: Jan 1, 2023
+        assert_eq!(occurrences[0].start.year(), 2023);
+        assert_eq!(occurrences[0].start.month(), 1);
+        assert_eq!(occurrences[0].start.day(), 1);
+
+        // Occurrence 2: Jan 3, 2023 (Jan 2 is excluded)
+        assert_eq!(occurrences[1].start.year(), 2023);
+        assert_eq!(occurrences[1].start.month(), 1);
+        assert_eq!(occurrences[1].start.day(), 3);
+
+        // Occurrence 3: Jan 5, 2023 (Jan 4 is excluded)
+        assert_eq!(occurrences[2].start.year(), 2023);
+        assert_eq!(occurrences[2].start.month(), 1);
+        assert_eq!(occurrences[2].start.day(), 5);
+
+        // Occurrence 4: Jan 6, 2023
+        assert_eq!(occurrences[3].start.year(), 2023);
+        assert_eq!(occurrences[3].start.month(), 1);
+        assert_eq!(occurrences[3].start.day(), 6);
+
+        // Occurrence 5: Jan 7, 2023
+        assert_eq!(occurrences[4].start.year(), 2023);
+        assert_eq!(occurrences[4].start.month(), 1);
+        assert_eq!(occurrences[4].start.day(), 7);
+    }
 }
 
 
