@@ -126,6 +126,40 @@ END:VCALENDAR";
         assert_eq!(occurrences[2].start.year(), 2023);
         assert_eq!(occurrences[2].start.month(), 1);
     }
+
+    #[test]
+    fn test_bug2_double_interval_monthly() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20221105\r\n\
+LAST-MODIFIED:20221105T170000Z\r\n\
+CREATED:20221105T170000Z\r\n\
+DTSTAMP:20221105T170000Z\r\n\
+SUMMARY:Bi-Monthly Team Sync\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=MONTHLY;INTERVAL=2;BYMONTHDAY=5;COUNT=3\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let event = &cal.events[0];
+        
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 3);
+        
+        // Occurrence 1: Nov 5, 2022
+        assert_eq!(occurrences[0].start.year(), 2022);
+        assert_eq!(occurrences[0].start.month(), 11);
+        
+        // Occurrence 2: Jan 5, 2023 (+2 months)
+        assert_eq!(occurrences[1].start.year(), 2023, "Second occurrence should be in 2023 (January)");
+        assert_eq!(occurrences[1].start.month(), 1, "Second occurrence should be January (1)");
+        
+        // Occurrence 3: Mar 5, 2023 (+2 months)
+        assert_eq!(occurrences[2].start.year(), 2023);
+        assert_eq!(occurrences[2].start.month(), 3, "Third occurrence should be March (3)");
+    }
 }
+
 
 

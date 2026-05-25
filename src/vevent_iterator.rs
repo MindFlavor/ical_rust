@@ -55,7 +55,8 @@ impl<'a> VEventIterator<'a> {
 
             RRule::MonthlyByMonthDay(rrule) => {
                 let next_occurrence =
-                    last_occurrence.inc_month(rrule.common_options().interval.unwrap_or(1));
+                    last_occurrence.inc_month(1);
+
 
                 if !rrule.is_expired(next_occurrence) {
                     self.last_occurrence = Some(next_occurrence);
