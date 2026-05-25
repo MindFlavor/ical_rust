@@ -9,8 +9,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum RRuleParseError {
-    #[error("Generic error")]
-    Generic,
     #[error("Frequency parse error {err:?})")]
     FrequencyParseError { err: FrequencyParseError },
     #[error("Missing frequency token {line:?})")]
@@ -194,12 +192,6 @@ impl FromStr for RRule {
             }),
         })
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Generic {
-    pub frequency: Frequency,
-    pub raw: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
