@@ -159,7 +159,42 @@ END:VCALENDAR";
         assert_eq!(occurrences[2].start.year(), 2023);
         assert_eq!(occurrences[2].start.month(), 3, "Third occurrence should be March (3)");
     }
+
+    #[test]
+    fn test_bug3_invalid_timezone_fails_safely() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Invalid/Timezone:20230101T090000\r\n\
+LAST-MODIFIED:20230101T170000Z\r\n\
+CREATED:20230101T170000Z\r\n\
+DTSTAMP:20230101T170000Z\r\n\
+SUMMARY:Invalid TZID test\r\n\
+SEQUENCE:0\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let result = VCalendar::try_from(ics_content);
+        assert!(result.is_err(), "Expected an error instead of panic or successful parse");
+    }
+
+    #[test]
+    fn test_bug3_missing_datetime_fails_safely() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome\r\n\
+LAST-MODIFIED:20230101T170000Z\r\n\
+CREATED:20230101T170000Z\r\n\
+DTSTAMP:20230101T170000Z\r\n\
+SUMMARY:Missing datetime test\r\n\
+SEQUENCE:0\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let result = VCalendar::try_from(ics_content);
+        assert!(result.is_err(), "Expected an error instead of panic or successful parse");
+    }
 }
+
 
 
 

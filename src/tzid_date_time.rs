@@ -13,6 +13,12 @@ pub enum TzIdDateTimeFormatError {
     AmbiguousTimeZone,
     #[error("Missing TZID= token")]
     MissingTZIDToken,
+    #[error("Invalid timezone: {0}")]
+    InvalidTimeZone(String),
+    #[error("Missing timezone part")]
+    MissingTimeZonePart,
+    #[error("Missing datetime part")]
+    MissingDateTimePart,
 }
 
 #[derive(Debug, Clone)]
@@ -45,9 +51,10 @@ impl TryFrom<&str> for TzIdDateTime {
         if let Some(line) = line.strip_prefix("TZID=") {
             let mut tokens = line.split(':');
 
-            let tz: Tz = tokens.next().unwrap().parse().unwrap();
+            let tz_str = tokens.next().ok_or(TzIdDateTimeFormatError::MissingTimeZonePart)?;
+            let tz: Tz = tz_str.parse().map_err(TzIdDateTimeFormatError::InvalidTimeZone)?;
 
-            let date_time = tokens.next().unwrap();
+            let date_time = tokens.next().ok_or(TzIdDateTimeFormatError::MissingDateTimePart)?;
 
             let date_time = NaiveDateTime::parse_from_str(date_time, "%Y%m%dT%H%M%S")?;
 
