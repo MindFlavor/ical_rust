@@ -1,8 +1,10 @@
 use std::{cmp::Ordering, ops::Range};
+use chrono::{Datelike, Timelike, LocalResult, Utc, TimeZone};
 
 use crate::{
     date_or_date_time::DateOrDateTime,
     rrule::{Options, RRule},
+    by_day::ByDay,
     VEvent,
 };
 use chrono::Duration;
@@ -39,8 +41,50 @@ impl<'a> VEventIterator<'a> {
                 }
             }
 
-            RRule::YearlyByMonthByDay(_rrule) => {
-                unimplemented!();
+            RRule::YearlyByMonthByDay(rrule) => {
+                let next_occurrence = last_occurrence.next_by_day(&rrule.day);
+                if next_occurrence.year() == last_occurrence.year()
+                    && next_occurrence.month() == rrule.month as u32
+                    && next_occurrence > last_occurrence
+                {
+                    if !rrule.is_expired(next_occurrence) {
+                        self.last_occurrence = Some(next_occurrence);
+                        self.last_occurrence
+                    } else {
+                        None
+                    }
+                } else {
+                    let next_year = last_occurrence.year() + rrule.common_options().interval.unwrap_or(1) as i32;
+                    let target_month_start = last_occurrence
+                        .substitute(
+                            Some(next_year),
+                            Some(rrule.month as u32),
+                            Some(1),
+                            None,
+                            None,
+                            None,
+                        )
+                        .unwrap();
+                    
+                    let mut next_occurrence = target_month_start;
+                    match &rrule.day {
+                        ByDay::Simple(weekdays) => {
+                            if !weekdays.contains(&target_month_start.date().weekday()) {
+                                next_occurrence = target_month_start.next_by_day(&rrule.day);
+                            }
+                        }
+                        ByDay::Delta(_) => {
+                            next_occurrence = target_month_start.next_by_day(&rrule.day);
+                        }
+                    }
+
+                    if !rrule.is_expired(next_occurrence) {
+                        self.last_occurrence = Some(next_occurrence);
+                        self.last_occurrence
+                    } else {
+                        None
+                    }
+                }
             }
 
             RRule::YearlyByMonthByMonthDay(_rrule) => {
@@ -54,8 +98,34 @@ impl<'a> VEventIterator<'a> {
             }
 
             RRule::MonthlyByMonthDay(rrule) => {
-                let next_occurrence =
-                    last_occurrence.inc_month(rrule.common_options().interval.unwrap_or(1));
+                let mut year = last_occurrence.year();
+                let mut month = last_occurrence.month() + 1;
+                if month > 12 {
+                    month = 1;
+                    year += 1;
+                }
+                let target_day = rrule.month_day as u32;
+                let mut d = target_day;
+                let mut date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+                while matches!(date, LocalResult::None) && d > 1 {
+                    d -= 1;
+                    date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+                }
+                let target_date = date.unwrap();
+                let next_occurrence = match last_occurrence {
+                    DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(target_date),
+                    DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
+                        Utc.with_ymd_and_hms(
+                            target_date.year(),
+                            target_date.month(),
+                            target_date.day(),
+                            dt.hour(),
+                            dt.minute(),
+                            dt.second(),
+                        )
+                        .unwrap(),
+                    ),
+                };
 
                 if !rrule.is_expired(next_occurrence) {
                     self.last_occurrence = Some(next_occurrence);
@@ -108,12 +178,20 @@ impl<'a> VEventIterator<'a> {
             }
 
             RRule::WeeklyByDay(rrule) => {
-                let next_occurrence = last_occurrence.next_by_day(&rrule.day);
-                log::debug!(
-                    "last_occurrence == {:?}, next_occurrence == {:?}",
-                    last_occurrence,
-                    next_occurrence
-                );
+                let interval = rrule.common_options().interval.unwrap_or(1) as i64;
+                let mut next_occurrence = last_occurrence.next_by_day(&rrule.day);
+
+                loop {
+                    let dt_start_monday = self.event.dt_start.date() - Duration::days(self.event.dt_start.date().weekday().num_days_from_monday() as i64);
+                    let next_monday = next_occurrence.date() - Duration::days(next_occurrence.date().weekday().num_days_from_monday() as i64);
+                    let diff_days = (next_monday - dt_start_monday).num_days();
+                    let diff_weeks = diff_days / 7;
+
+                    if diff_weeks % interval == 0 {
+                        break;
+                    }
+                    next_occurrence = next_occurrence.next_by_day(&rrule.day);
+                }
 
                 if !rrule.is_expired(next_occurrence) {
                     self.last_occurrence = Some(next_occurrence);
@@ -143,7 +221,10 @@ impl<'a> VEventIterator<'a> {
                     return None;
                 }
                 let mut next_occurrence = Some(last_occurrence);
-                let mut iterations = rrule.common_options().interval.unwrap_or(1);
+                let mut iterations = match rrule {
+                    RRule::WeeklyByDay(_) | RRule::YearlyByMonthByDay(_) => 1,
+                    _ => rrule.common_options().interval.unwrap_or(1),
+                };
                 while iterations > 0 && next_occurrence.is_some() {
                     next_occurrence =
                         self.get_next_occurrence_according_to_rule(next_occurrence.unwrap(), rrule);

@@ -185,26 +185,22 @@ impl DateOrDateTime {
     }
 
     pub fn inc_month(self, increment: u32) -> Self {
-        let delta_final_months = self.month() + increment;
-        let delta_years = delta_final_months / 12;
-        let final_month = std::cmp::max(delta_final_months - delta_years * 12, 1);
+        let total_months = (self.month() - 1) + increment;
+        let final_month = (total_months % 12) + 1;
+        let delta_years = total_months / 12;
 
-        let mut year = self.year() + delta_years as i32;
-        let mut month = final_month;
-        let day = self.day();
+        let year = self.year() + delta_years as i32;
+        let month = final_month;
+        let mut d = self.day();
 
-        // we need to loop because some months do not have all the dates. For example, february is
-        // does not have 30,31 (and sometimes not even 29).
+
+        // we need to clamp because some months do not have all the dates. For example, february
+        // does not have 30, 31 (and sometimes not even 29).
         let date = {
-            let mut date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0);
-            while matches!(date, LocalResult::None) {
-                month += 1;
-                if month > 12 {
-                    month = 1;
-                    year += 1;
-                }
-
-                date = Utc.with_ymd_and_hms(year, month, day, 0, 0, 0);
+            let mut date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+            while matches!(date, LocalResult::None) && d > 1 {
+                d -= 1;
+                date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
             }
             date.unwrap()
         };
@@ -228,23 +224,35 @@ impl DateOrDateTime {
     pub fn inc_year(&self, increment: u32) -> DateOrDateTime {
         match self {
             DateOrDateTime::WholeDay(d) => {
-                let d = Utc
-                    .with_ymd_and_hms(d.year() + increment as i32, d.month(), d.day(), 0, 0, 0)
-                    .unwrap();
-                Self::WholeDay(d)
+                let mut day = d.day();
+                let year = d.year() + increment as i32;
+                let mut date = Utc.with_ymd_and_hms(year, d.month(), day, 0, 0, 0);
+                while matches!(date, LocalResult::None) && day > 1 {
+                    day -= 1;
+                    date = Utc.with_ymd_and_hms(year, d.month(), day, 0, 0, 0);
+                }
+                Self::WholeDay(date.unwrap())
             }
             DateOrDateTime::DateTime(d) => {
-                let d = Utc
-                    .with_ymd_and_hms(
-                        d.year() + increment as i32,
-                        d.month(),
-                        d.day(),
+                let mut day = d.day();
+                let year = d.year() + increment as i32;
+                let mut date = Utc.with_ymd_and_hms(year, d.month(), day, 0, 0, 0);
+                while matches!(date, LocalResult::None) && day > 1 {
+                    day -= 1;
+                    date = Utc.with_ymd_and_hms(year, d.month(), day, 0, 0, 0);
+                }
+                let target_date = date.unwrap();
+                Self::DateTime(
+                    Utc.with_ymd_and_hms(
+                        target_date.year(),
+                        target_date.month(),
+                        target_date.day(),
                         d.hour(),
                         d.minute(),
                         d.second(),
                     )
-                    .unwrap();
-                Self::DateTime(d)
+                    .unwrap(),
+                )
             }
         }
     }
@@ -475,6 +483,7 @@ mod tests {
         assert_eq!(date_time.year() + 1, next.year());
         assert_eq!(date_time.month(), next.month());
     }
+
 
     #[test]
     fn next_weekday() {
