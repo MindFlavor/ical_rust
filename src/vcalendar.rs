@@ -66,3 +66,32 @@ impl TryFrom<Block> for VCalendar {
         Ok(Self { timezones, events })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_readme_example() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20230101T090000\r\n\
+LAST-MODIFIED:20230101T170000Z\r\n\
+CREATED:20230101T170000Z\r\n\
+DTSTAMP:20230101T170000Z\r\n\
+SUMMARY:Rust Pair Programming\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        let event = &cal.events[0];
+        assert_eq!(event.summary, "Rust Pair Programming");
+
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 10);
+    }
+}
+
