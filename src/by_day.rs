@@ -1,14 +1,7 @@
 use chrono::Weekday;
 use std::str::FromStr;
-use thiserror::Error;
+use crate::errors::ByDayParseError;
 
-#[derive(Error, Debug)]
-pub enum ByDayParseError {
-    #[error("Invalid weekday {w:?})")]
-    InvalidWeekday { w: String },
-    #[error("Invalid delta")]
-    InvalidDelta(#[from] std::num::ParseIntError),
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Delta {

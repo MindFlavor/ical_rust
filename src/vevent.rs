@@ -1,49 +1,15 @@
 use crate::{
     block::Block,
-    date_or_date_time::{DateIntersectError, DateOrDateTime, EventOverlap},
-    rrule::{RRule, RRuleParseError},
+    date_or_date_time::{DateOrDateTime, EventOverlap},
+    rrule::RRule,
     vevent_iterator::VEventIterator,
     TzIdDateTime,
+    errors::{VEventParseError, TzIdDateTimeParseError, DateIntersectError},
+
 };
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
-use std::{num::ParseIntError, ops::Range};
-use thiserror::Error;
+use std::ops::Range;
 
-#[derive(Error, Debug)]
-pub enum VEventFormatError {
-    #[error("Missing mandatory colon (block {block:?})")]
-    MissingColon { block: Block },
-    #[error("Missing mandatory semicolon (block {block:?})")]
-    MissingSemicolon { block: Block },
-    #[error("Missing mandatory field {field:?}. Block:\n{block:?}")]
-    MissingMandatoryField { block: Block, field: String },
-    #[error("Error parsing SEQUENCE number {block:?}. Error: {error}")]
-    SequenceParseIntError { block: Block, error: ParseIntError },
-    #[error("RRule parse error")]
-    RRuleParseError(#[from] RRuleParseError),
-    #[error("TzIdDateTime parse error")]
-    TzIdDateTimeFormatError(#[from] crate::TzIdDateTimeFormatError),
-    #[error("Chrono parse error")]
-    ChronoParseError(#[from] chrono::ParseError),
-}
-
-impl VEventFormatError {
-    pub fn missing_colon(block: Block) -> Self {
-        VEventFormatError::MissingColon { block }
-    }
-    pub fn missing_semicolon(block: Block) -> Self {
-        VEventFormatError::MissingSemicolon { block }
-    }
-    pub fn missing_mandatory_field(block: Block, field: impl Into<String>) -> Self {
-        VEventFormatError::MissingMandatoryField {
-            field: field.into(),
-            block,
-        }
-    }
-    pub fn sequence_parse_int_error(block: Block, error: ParseIntError) -> Self {
-        VEventFormatError::SequenceParseIntError { block, error }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct VEvent {
@@ -119,7 +85,7 @@ impl VEvent {
 }
 
 impl TryFrom<Block> for VEvent {
-    type Error = VEventFormatError;
+    type Error = VEventParseError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
         let mut dt_created = None;
@@ -149,56 +115,56 @@ impl TryFrom<Block> for VEvent {
                 "LAST-MODIFIED" => {
                     dt_last_modified =
                         Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventFormatError::missing_colon(block.clone())
+                            VEventParseError::missing_colon(block.clone())
                         })?)?);
                 }
                 "DTSTART" => {
                     dt_start = Some(DateOrDateTime::DateTime(string_to_datetime(
-                        extra.ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?,
+                        extra.ok_or_else(|| VEventParseError::missing_colon(block.clone()))?,
                     )?));
                 }
                 "DTEND" => {
                     dt_end =
                         Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventFormatError::missing_colon(block.clone())
+                            VEventParseError::missing_colon(block.clone())
                         })?)?);
                 }
                 "CREATED" => {
                     dt_created =
                         Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventFormatError::missing_colon(block.clone())
+                            VEventParseError::missing_colon(block.clone())
                         })?)?);
                 }
                 "DTSTAMP" => {
                     dt_stamp =
                         Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventFormatError::missing_colon(block.clone())
+                            VEventParseError::missing_colon(block.clone())
                         })?)?);
                 }
                 "SUMMARY" => {
                     summary = Some(
                         extra
-                            .ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?
+                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
                             .to_string(),
                     );
                 }
                 "DESCRIPTION" => description = extra.map(|e| e.to_string()),
                 "SEQUENCE" => {
                     sequence = extra.map(|e| e.parse::<u32>()).transpose().map_err(|e| {
-                        VEventFormatError::sequence_parse_int_error(block.clone(), e)
+                        VEventParseError::sequence_parse_int_error(block.clone(), e)
                     })?;
                 }
                 "RRULE" => {
                     rrule = Some(
                         extra
-                            .ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?
+                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
                             .parse::<RRule>()?,
                     );
                 }
                 "STATUS" => {
                     status = Some(
                         extra
-                            .ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?
+                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
                             .to_string(),
                     );
                 }
@@ -220,13 +186,13 @@ impl TryFrom<Block> for VEvent {
                 "ORGANIZER" => {
                     organizer = Some(
                         extra
-                            .ok_or_else(|| VEventFormatError::missing_colon(block.clone()))?
+                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
                             .to_string(),
                     );
                 }
                 "EXDATE" => {
                     let extra =
-                        extra.ok_or_else(|| VEventFormatError::missing_semicolon(block.clone()))?;
+                        extra.ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?;
                     log::trace!("parsing EXDATE ==> {}", extra);
                     
                     if let Some(colon_idx) = extra.find(':') {
@@ -245,7 +211,7 @@ impl TryFrom<Block> for VEvent {
                         extra
                             .map(to_tziddate_or_date)
                             .transpose()?
-                            .ok_or_else(|| VEventFormatError::missing_semicolon(block.clone()))?,
+                            .ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?,
                     );
                 }
                 "DTEND" => {
@@ -253,7 +219,7 @@ impl TryFrom<Block> for VEvent {
                         extra
                             .map(to_tziddate_or_date)
                             .transpose()?
-                            .ok_or_else(|| VEventFormatError::missing_semicolon(block.clone()))?,
+                            .ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?,
                     );
                 }
                 _ => {} // ignore
@@ -261,28 +227,28 @@ impl TryFrom<Block> for VEvent {
         }
 
         let dt_start = dt_start
-            .ok_or_else(|| VEventFormatError::missing_mandatory_field(block.clone(), "DTSTART"))?;
+            .ok_or_else(|| VEventParseError::missing_mandatory_field(block.clone(), "DTSTART"))?;
 
         Ok(VEvent {
             dt_last_modified: dt_last_modified.ok_or_else(|| {
-                VEventFormatError::missing_mandatory_field(block.clone(), "LAST-MODIFIED")
+                VEventParseError::missing_mandatory_field(block.clone(), "LAST-MODIFIED")
             })?,
             dt_start,
             dt_end: dt_end.unwrap_or(dt_start), // if there is no DT_END tag, it means end is the same as start.
             dt_created: dt_created.ok_or_else(|| {
-                VEventFormatError::missing_mandatory_field(block.clone(), "CREATED")
+                VEventParseError::missing_mandatory_field(block.clone(), "CREATED")
             })?,
             dt_stamp: dt_stamp.ok_or_else(|| {
-                VEventFormatError::missing_mandatory_field(block.clone(), "DTSTAMP")
+                VEventParseError::missing_mandatory_field(block.clone(), "DTSTAMP")
             })?,
             summary: summary.ok_or_else(|| {
-                VEventFormatError::missing_mandatory_field(block.clone(), "SUMMARY")
+                VEventParseError::missing_mandatory_field(block.clone(), "SUMMARY")
             })?,
             description,
             rrule,
             exdates,
             sequence: sequence.ok_or_else(|| {
-                VEventFormatError::missing_mandatory_field(block.clone(), "SEQUENCE")
+                VEventParseError::missing_mandatory_field(block.clone(), "SEQUENCE")
             })?,
             status,
             organizer,
@@ -335,6 +301,7 @@ fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
 
 fn to_tziddate_or_date(
     s: &str,
-) -> Result<DateOrDateTime, crate::tzid_date_time::TzIdDateTimeFormatError> {
+) -> Result<DateOrDateTime, TzIdDateTimeParseError> {
+
     Ok(s.parse::<TzIdDateTime>()?.date_time)
 }

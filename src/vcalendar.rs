@@ -1,9 +1,9 @@
 use crate::block::Block;
 use crate::ical_line_parser::ICalLineParser;
-use crate::vtimezone::{VTimezone, VTimezoneParseError};
+use crate::vtimezone::VTimezone;
 use crate::VEvent;
 use either::*;
-use thiserror::Error;
+use crate::errors::VCalendarParseError;
 
 #[derive(Debug, Clone, Default)]
 pub struct VCalendar {
@@ -11,17 +11,6 @@ pub struct VCalendar {
     pub events: Vec<VEvent>,
 }
 
-#[derive(Error, Debug)]
-pub enum VCalendarParseError {
-    #[error("VTimezone parse error")]
-    VTimezoneParseError(#[from] VTimezoneParseError),
-    #[error("Unsupported tag {tag:?}")]
-    UnsupportedTagError { tag: String },
-    #[error("VEvent parse error")]
-    VEventFormatError(#[from] crate::vevent::VEventFormatError),
-    #[error("Block parse error")]
-    BlockParseError(#[from] crate::block::BlockParseError),
-}
 
 impl TryFrom<&str> for VCalendar {
     type Error = VCalendarParseError;
