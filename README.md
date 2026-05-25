@@ -18,6 +18,17 @@
 
 ---
 
+## 📦 Installation
+
+Add `ical_rust` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+ical_rust = "0.6.0"
+```
+
+---
+
 ## 🛠️ Quick Start
 
 Here is a simple example showing how to parse an iCalendar string, access an event, and expand its recurring occurrences:
@@ -81,6 +92,17 @@ A custom enum handling both single full-day bounds and precise timezone-associat
 - `DateOrDateTime::DateTime(DateTime<Utc>)`
 
 Provides support for calculations, incrementing components safely (e.g. leap years, variable-length months), and testing for intersection overlapping (`intersects`).
+
+### ⚠️ Error Handling
+
+Since version `0.6.0`, all parsing and domain-specific errors are centralized under the `ical_rust::errors` module for type safety and consistent error reporting. Key error types include:
+
+- `BlockParseError`: Errors parsing folded lines and block structures.
+- `VCalendarParseError`: Failures specific to calendar blocks.
+- `VEventParseError`: Failures when parsing events.
+- `TzIdDateTimeParseError`: Timezone and date-time format errors.
+
+All error types implement `std::error::Error` and utilize the `thiserror` crate to format informative error messages.
 
 ---
 
