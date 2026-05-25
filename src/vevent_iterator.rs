@@ -1,5 +1,5 @@
 use std::{cmp::Ordering, ops::Range};
-use chrono::Datelike;
+use chrono::{Datelike, Timelike, LocalResult, Utc, TimeZone};
 
 use crate::{
     date_or_date_time::DateOrDateTime,
@@ -98,9 +98,34 @@ impl<'a> VEventIterator<'a> {
             }
 
             RRule::MonthlyByMonthDay(rrule) => {
-                let next_occurrence =
-                    last_occurrence.inc_month(1);
-
+                let mut year = last_occurrence.year();
+                let mut month = last_occurrence.month() + 1;
+                if month > 12 {
+                    month = 1;
+                    year += 1;
+                }
+                let target_day = rrule.month_day as u32;
+                let mut d = target_day;
+                let mut date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+                while matches!(date, LocalResult::None) && d > 1 {
+                    d -= 1;
+                    date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+                }
+                let target_date = date.unwrap();
+                let next_occurrence = match last_occurrence {
+                    DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(target_date),
+                    DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
+                        Utc.with_ymd_and_hms(
+                            target_date.year(),
+                            target_date.month(),
+                            target_date.day(),
+                            dt.hour(),
+                            dt.minute(),
+                            dt.second(),
+                        )
+                        .unwrap(),
+                    ),
+                };
 
                 if !rrule.is_expired(next_occurrence) {
                     self.last_occurrence = Some(next_occurrence);

@@ -325,6 +325,53 @@ END:VCALENDAR";
         assert_eq!(cal.events.len(), 1);
         assert_eq!(cal.events[0].summary, "LF Line Ending with Tab Folding");
     }
+
+    #[test]
+    fn test_bug9_month_skipping_for_end_of_month_dates() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230131\r\n\
+LAST-MODIFIED:20230131T170000Z\r\n\
+CREATED:20230131T170000Z\r\n\
+DTSTAMP:20230131T170000Z\r\n\
+SUMMARY:End of Month Recurrence\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=MONTHLY;BYMONTHDAY=31;COUNT=5\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        let event = &cal.events[0];
+
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 5);
+
+        // Occurrence 1: Jan 31, 2023
+        assert_eq!(occurrences[0].start.year(), 2023);
+        assert_eq!(occurrences[0].start.month(), 1);
+        assert_eq!(occurrences[0].start.day(), 31);
+
+        // Occurrence 2: Feb 28, 2023 (clamped)
+        assert_eq!(occurrences[1].start.year(), 2023);
+        assert_eq!(occurrences[1].start.month(), 2);
+        assert_eq!(occurrences[1].start.day(), 28);
+
+        // Occurrence 3: Mar 31, 2023
+        assert_eq!(occurrences[2].start.year(), 2023);
+        assert_eq!(occurrences[2].start.month(), 3);
+        assert_eq!(occurrences[2].start.day(), 31);
+
+        // Occurrence 4: Apr 30, 2023 (clamped)
+        assert_eq!(occurrences[3].start.year(), 2023);
+        assert_eq!(occurrences[3].start.month(), 4);
+        assert_eq!(occurrences[3].start.day(), 30);
+
+        // Occurrence 5: May 31, 2023
+        assert_eq!(occurrences[4].start.year(), 2023);
+        assert_eq!(occurrences[4].start.month(), 5);
+        assert_eq!(occurrences[4].start.day(), 31);
+    }
 }
 
 
