@@ -327,11 +327,10 @@ fn string_to_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
 }
 
 fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
-    Ok(DateTime::<Local>::from_utc(
-        NaiveDateTime::parse_from_str(&format!("{s}T000000"), "%Y%m%dT%H%M%S")?,
-        Local::now().offset().to_owned(),
-    )
-    .with_timezone(&Utc))
+    Ok(Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(
+        &format!("{s}T000000"),
+        "%Y%m%dT%H%M%S",
+    )?))
 }
 
 fn to_tziddate_or_date(
