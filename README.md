@@ -23,7 +23,7 @@
 Here is a simple example showing how to parse an iCalendar string, access an event, and expand its recurring occurrences:
 
 ```rust
-use ical_rust::{VCalendar, DateOrDateTime};
+use ical_rust::{VCalendar, Options};
 
 fn main() {
     // A sample ICS payload containing a recurring event
@@ -47,7 +47,7 @@ END:VCALENDAR";
     println!("Calendar Event Found: {}", event.summary);
 
     // 3. Iterate over the calculated occurrences
-    println!("\nExpanding Recurrence Rule ({}):", event.rrule.as_ref().unwrap().raw);
+    println!("\nExpanding Recurrence Rule ({}):", event.rrule.as_ref().unwrap().common_options().raw);
     for (i, occurrence) in event.into_iter().enumerate() {
         println!("  Occurrence #{}:", i + 1);
         println!("    Start: {:?}", occurrence.start);
