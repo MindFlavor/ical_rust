@@ -193,6 +193,43 @@ END:VCALENDAR";
         let result = VCalendar::try_from(ics_content);
         assert!(result.is_err(), "Expected an error instead of panic or successful parse");
     }
+
+    #[test]
+    fn test_bug4_yearly_by_month_by_day() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20221124T090000\r\n\
+LAST-MODIFIED:20221124T170000Z\r\n\
+CREATED:20221124T170000Z\r\n\
+DTSTAMP:20221124T170000Z\r\n\
+SUMMARY:Thanksgiving Dinner\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=4TH;COUNT=3\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        let event = &cal.events[0];
+
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 3);
+
+        // Occurrence 1: Nov 24, 2022
+        assert_eq!(occurrences[0].start.year(), 2022);
+        assert_eq!(occurrences[0].start.month(), 11);
+        assert_eq!(occurrences[0].start.day(), 24);
+
+        // Occurrence 2: Nov 23, 2023
+        assert_eq!(occurrences[1].start.year(), 2023);
+        assert_eq!(occurrences[1].start.month(), 11);
+        assert_eq!(occurrences[1].start.day(), 23);
+
+        // Occurrence 3: Nov 28, 2024
+        assert_eq!(occurrences[2].start.year(), 2024);
+        assert_eq!(occurrences[2].start.month(), 11);
+        assert_eq!(occurrences[2].start.day(), 28);
+    }
 }
 
 

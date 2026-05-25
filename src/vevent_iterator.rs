@@ -1,8 +1,10 @@
 use std::{cmp::Ordering, ops::Range};
+use chrono::Datelike;
 
 use crate::{
     date_or_date_time::DateOrDateTime,
     rrule::{Options, RRule},
+    by_day::ByDay,
     VEvent,
 };
 use chrono::Duration;
@@ -39,8 +41,50 @@ impl<'a> VEventIterator<'a> {
                 }
             }
 
-            RRule::YearlyByMonthByDay(_rrule) => {
-                unimplemented!();
+            RRule::YearlyByMonthByDay(rrule) => {
+                let next_occurrence = last_occurrence.next_by_day(&rrule.day);
+                if next_occurrence.year() == last_occurrence.year()
+                    && next_occurrence.month() == rrule.month as u32
+                    && next_occurrence > last_occurrence
+                {
+                    if !rrule.is_expired(next_occurrence) {
+                        self.last_occurrence = Some(next_occurrence);
+                        self.last_occurrence
+                    } else {
+                        None
+                    }
+                } else {
+                    let next_year = last_occurrence.year() + rrule.common_options().interval.unwrap_or(1) as i32;
+                    let target_month_start = last_occurrence
+                        .substitute(
+                            Some(next_year),
+                            Some(rrule.month as u32),
+                            Some(1),
+                            None,
+                            None,
+                            None,
+                        )
+                        .unwrap();
+                    
+                    let mut next_occurrence = target_month_start;
+                    match &rrule.day {
+                        ByDay::Simple(weekdays) => {
+                            if !weekdays.contains(&target_month_start.date().weekday()) {
+                                next_occurrence = target_month_start.next_by_day(&rrule.day);
+                            }
+                        }
+                        ByDay::Delta(_) => {
+                            next_occurrence = target_month_start.next_by_day(&rrule.day);
+                        }
+                    }
+
+                    if !rrule.is_expired(next_occurrence) {
+                        self.last_occurrence = Some(next_occurrence);
+                        self.last_occurrence
+                    } else {
+                        None
+                    }
+                }
             }
 
             RRule::YearlyByMonthByMonthDay(_rrule) => {
