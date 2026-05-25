@@ -306,6 +306,25 @@ END:VCALENDAR";
         assert_eq!(cal.events.len(), 1);
         assert_eq!(cal.events[0].summary, "LF Line Ending Test");
     }
+
+    #[test]
+    fn test_bug8_tab_line_folding_supported() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20230101T090000\r\n\
+LAST-MODIFIED:20230101T170000Z\r\n\
+CREATED:20230101T170000Z\r\n\
+DTSTAMP:20230101T170000Z\r\n\
+SUMMARY:LF Line Ending \r\n\
+\twith Tab Folding\r\n\
+SEQUENCE:0\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        assert_eq!(cal.events[0].summary, "LF Line Ending with Tab Folding");
+    }
 }
 
 

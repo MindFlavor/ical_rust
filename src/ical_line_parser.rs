@@ -23,7 +23,7 @@ impl<'a> Iterator for ICalLineParser<'a> {
             if count == 0 {
                 s = Some(line.to_owned());
                 count += 1;
-            } else if let Some(stripped) = line.strip_prefix(' ') {
+            } else if let Some(stripped) = line.strip_prefix(' ').or_else(|| line.strip_prefix('\t')) {
                 s = Some(s.unwrap_or_default() + stripped);
                 count += 1;
             } else {
