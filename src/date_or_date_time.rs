@@ -297,6 +297,10 @@ impl DateOrDateTime {
                     .with_ymd_and_hms(dt_end.year(), dt_end.month(), dt_end.day(), 0, 0, 0)
                     .unwrap();
 
+                if d_start > d_end {
+                    return Err(DateIntersectError::StartDateAfterEndDate);
+                }
+
                 match (d_start.cmp(&day), d_end.cmp(&day)) {
                     (Ordering::Less, Ordering::Less) => Ok(EventOverlap::FinishesPast),
                     (Ordering::Less, Ordering::Equal) => Ok(EventOverlap::StartsPastEndsSameDay),
@@ -324,6 +328,10 @@ impl DateOrDateTime {
                         .with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
                         .unwrap(),
                 };
+
+                if dt_start.date_naive() > dt_end.date_naive() {
+                    return Err(DateIntersectError::StartDateAfterEndDate);
+                }
 
                 match (
                     dt_start.date_naive().cmp(&dt.date_naive()),
@@ -815,5 +823,26 @@ mod tests {
             dt.substitute(None, None, None, Some(25), None, None)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn test_issue15_intersects_start_after_end_always_errors() {
+        let query = DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 10, 0, 0, 0).unwrap());
+        let future_start =
+            DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 20, 0, 0, 0).unwrap());
+        let past_end =
+            DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 15, 0, 0, 0).unwrap());
+
+        assert!(matches!(
+            query.intersects(future_start, past_end),
+            Err(DateIntersectError::StartDateAfterEndDate)
+        ));
+
+        let query_dt =
+            DateOrDateTime::DateTime(Utc.with_ymd_and_hms(2023, 1, 10, 12, 0, 0).unwrap());
+        assert!(matches!(
+            query_dt.intersects(future_start, past_end),
+            Err(DateIntersectError::StartDateAfterEndDate)
+        ));
     }
 }
