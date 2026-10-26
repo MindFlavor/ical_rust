@@ -71,6 +71,10 @@ pub enum RRuleParseError {
     InvalidByMonth { month: u8 },
     #[error("Invalid BYMONTHDAY value: {day} (must be -31..=-1 or 1..=31)")]
     InvalidByMonthDay { day: i8 },
+    #[error("Invalid BYSETPOS value: {pos} (must be -366..=-1 or 1..=366)")]
+    InvalidBySetPos { pos: i16 },
+    #[error("RRULE cannot specify both COUNT and UNTIL")]
+    BothCountAndUntilSpecified,
     #[error("ByDayParserError ({error:?}) line == {line:?}")]
     ByDayParserError {
         error: ByDayParseError,
@@ -119,6 +123,10 @@ pub enum VEventParseError {
     MissingSemicolon { line: String },
     #[error("Missing mandatory field {field:?}")]
     MissingMandatoryField { field: String },
+    #[error("VEVENT cannot specify both DTEND and DURATION")]
+    BothDtEndAndDurationSpecified,
+    #[error("Invalid DURATION value: {duration:?}")]
+    InvalidDuration { duration: String },
     #[error("Error parsing SEQUENCE number in line {line:?}. Error: {error}")]
     SequenceParseIntError { line: String, error: ParseIntError },
     #[error("Block parse error")]

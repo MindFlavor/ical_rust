@@ -25,7 +25,7 @@ impl FromStr for Frequency {
     type Err = FrequencyParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        match s.to_ascii_uppercase().as_str() {
             "YEARLY" => Ok(Frequency::Yearly),
             "MONTHLY" => Ok(Frequency::Monthly),
             "WEEKLY" => Ok(Frequency::Weekly),

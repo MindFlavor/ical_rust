@@ -32,20 +32,21 @@ impl Block {
                 }
             }
 
-            if let Some(begin_name) = s.strip_prefix("BEGIN:") {
+            if s.len() >= 6 && s.is_char_boundary(6) && s[..6].eq_ignore_ascii_case("BEGIN:") {
                 stack.push(Block {
-                    name: begin_name.to_owned(),
+                    name: s[6..].to_ascii_uppercase(),
                     inner_lines: Vec::new(),
                     inner_blocks: Vec::new(),
                 });
-            } else if let Some(end_name) = s.strip_prefix("END:") {
+            } else if s.len() >= 4 && s.is_char_boundary(4) && s[..4].eq_ignore_ascii_case("END:") {
+                let end_name = s[4..].to_ascii_uppercase();
                 let top = stack
                     .pop()
                     .ok_or(BlockParseError::BlockNotStartingWithBEGIN)?;
                 if top.name != end_name {
                     return Err(BlockParseError::MismatchedEndTag {
                         expected: top.name,
-                        found: end_name.to_owned(),
+                        found: end_name,
                     });
                 }
                 if let Some(parent) = stack.last_mut() {

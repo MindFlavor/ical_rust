@@ -1,7 +1,8 @@
+use crate::date_or_date_time::DateOrDateTime;
 use crate::errors::{VTimezoneOffsetParseError, VTimezoneParseError};
 use crate::property::ContentLine;
-use crate::{block::Block, rrule::RRule};
-use chrono::{FixedOffset, NaiveDate};
+use crate::{VEvent, block::Block, rrule::RRule};
+use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,7 +17,63 @@ pub struct VTimezoneOffset {
     pub tz_offset_from: FixedOffset,
     pub tz_offset_to: FixedOffset,
     pub dt_start: NaiveDate,
+    pub dt_start_time: NaiveTime,
     pub rrule: Option<RRule>,
+}
+
+impl VTimezone {
+    pub fn offset_at(&self, local: NaiveDateTime) -> Option<FixedOffset> {
+        let mut best: Option<(NaiveDateTime, FixedOffset)> = None;
+
+        for offset in &self.offsets {
+            let start_dt = offset.dt_start.and_time(offset.dt_start_time);
+            if start_dt > local {
+                continue;
+            }
+
+            let latest_transition = if let Some(rrule) = &offset.rrule {
+                let start_dodt = DateOrDateTime::DateTime {
+                    utc: start_dt.and_utc(),
+                    tz: None,
+                };
+                let dummy_event = VEvent {
+                    uid: None,
+                    recurrence_id: None,
+                    dt_created: start_dodt,
+                    dt_last_modified: start_dodt,
+                    dt_start: start_dodt,
+                    dt_end: start_dodt,
+                    dt_stamp: start_dodt,
+                    summary: String::new(),
+                    description: None,
+                    rrule: Some(rrule.clone()),
+                    rdates: Vec::new(),
+                    exdates: Vec::new(),
+                    overridden_dates: Vec::new(),
+                    sequence: 0,
+                    status: None,
+                    organizer: None,
+                    google_conference_url: None,
+                };
+                dummy_event
+                    .into_iter()
+                    .take(10_000)
+                    .map(|occ| occ.start.as_datetime().naive_utc())
+                    .take_while(|&dt| dt <= local)
+                    .last()
+                    .unwrap_or(start_dt)
+            } else {
+                start_dt
+            };
+
+            if best.is_none_or(|(best_dt, _)| latest_transition >= best_dt) {
+                best = Some((latest_transition, offset.tz_offset_to));
+            }
+        }
+
+        best.map(|(_, off)| off)
+            .or_else(|| self.offsets.first().map(|o| o.tz_offset_to))
+    }
 }
 
 pub fn parse_utc_offset(s: &str) -> Result<FixedOffset, VTimezoneOffsetParseError> {
@@ -96,7 +153,7 @@ impl TryFrom<Block> for VTimezone {
             .inner_lines
             .iter()
             .filter_map(|l| ContentLine::parse(l))
-            .find(|p| p.name == "TZID")
+            .find(|p| p.name.eq_ignore_ascii_case("TZID"))
             .map(|p| p.value.to_owned())
             .ok_or(VTimezoneParseError::TZIDTagNotFound)?;
 
@@ -119,20 +176,21 @@ impl TryFrom<Block> for VTimezoneOffset {
         let mut tz_offset_from = None;
         let mut tz_offset_to = None;
         let mut dt_start = None;
+        let mut dt_start_time = None;
         let mut rrule = None;
 
         for s in &block.inner_lines {
             let prop = ContentLine::parse(s)
                 .ok_or_else(|| VTimezoneOffsetParseError::MissingColon { line: s.to_owned() })?;
 
-            match prop.name {
+            match prop.name.to_ascii_uppercase().as_str() {
                 "TZNAME" => tz_name = Some(prop.value.to_owned()),
                 "TZOFFSETFROM" => tz_offset_from = Some(parse_utc_offset(prop.value)?),
                 "TZOFFSETTO" => tz_offset_to = Some(parse_utc_offset(prop.value)?),
                 "DTSTART" => {
-                    dt_start = Some(
-                        chrono::NaiveDateTime::parse_from_str(prop.value, "%Y%m%dT%H%M%S")?.date(),
-                    )
+                    let ndt = chrono::NaiveDateTime::parse_from_str(prop.value, "%Y%m%dT%H%M%S")?;
+                    dt_start = Some(ndt.date());
+                    dt_start_time = Some(ndt.time());
                 }
                 "RRULE" => rrule = Some(prop.value.parse()?),
                 _ => {} // ignore optional RFC 5545 properties such as COMMENT, RDATE, X-*
@@ -151,6 +209,7 @@ impl TryFrom<Block> for VTimezoneOffset {
             })?,
             dt_start: dt_start
                 .ok_or(VTimezoneOffsetParseError::MissingMandatoryField { field: "DTSTART" })?,
+            dt_start_time: dt_start_time.unwrap_or_default(),
             rrule,
         })
     }

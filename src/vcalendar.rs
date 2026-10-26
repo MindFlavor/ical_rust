@@ -2,6 +2,7 @@ use crate::VEvent;
 use crate::block::Block;
 use crate::date_or_date_time::DateOrDateTime;
 use crate::errors::{DateIntersectError, VCalendarParseError};
+use crate::property::{ContentLine, unescape_ical_text};
 use crate::vevent::OccurrenceResult;
 use crate::vtimezone::VTimezone;
 use std::ops::Range;
@@ -9,6 +10,10 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VCalendar {
+    pub version: Option<String>,
+    pub prod_id: Option<String>,
+    pub calscale: Option<String>,
+    pub method: Option<String>,
     pub timezones: Vec<VTimezone>,
     pub events: Vec<VEvent>,
 }
@@ -73,18 +78,67 @@ impl TryFrom<Block> for VCalendar {
             return Err(VCalendarParseError::UnsupportedTagError { tag: block.name });
         }
 
+        let mut version = None;
+        let mut prod_id = None;
+        let mut calscale = None;
+        let mut method = None;
+
+        for line in &block.inner_lines {
+            if let Some(prop) = ContentLine::parse(line) {
+                match prop.name.to_ascii_uppercase().as_str() {
+                    "VERSION" => version = Some(prop.value.to_owned()),
+                    "PRODID" => prod_id = Some(unescape_ical_text(prop.value)),
+                    "CALSCALE" => calscale = Some(prop.value.to_owned()),
+                    "METHOD" => method = Some(prop.value.to_owned()),
+                    _ => {}
+                }
+            }
+        }
+
         let mut timezones = Vec::new();
-        let mut events = Vec::new();
+        let mut event_blocks = Vec::new();
 
         for b in block.inner_blocks {
             match b.name.as_str() {
                 "VTIMEZONE" => timezones.push(VTimezone::try_from(b)?),
-                "VEVENT" => events.push(VEvent::try_from(b)?),
+                "VEVENT" => event_blocks.push(b),
                 _ => {}
             }
         }
 
-        Ok(Self { timezones, events })
+        let mut events = Vec::with_capacity(event_blocks.len());
+        for b in event_blocks {
+            events.push(VEvent::try_from_block_with_timezones(b, &timezones)?);
+        }
+
+        // Link RECURRENCE-ID overrides to master recurring VEVENTs sharing the same UID
+        let overrides: Vec<(String, DateOrDateTime)> = events
+            .iter()
+            .filter_map(|ev| Some((ev.uid.clone()?, ev.recurrence_id?)))
+            .collect();
+
+        if !overrides.is_empty() {
+            for ev in &mut events {
+                if ev.recurrence_id.is_none()
+                    && let Some(uid) = &ev.uid
+                {
+                    for (ov_uid, rec_id) in &overrides {
+                        if uid == ov_uid && !ev.overridden_dates.contains(rec_id) {
+                            ev.overridden_dates.push(*rec_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Self {
+            version,
+            prod_id,
+            calscale,
+            method,
+            timezones,
+            events,
+        })
     }
 }
 
@@ -623,7 +677,7 @@ END:VCALENDAR";
         // 2. FREQ=YEARLY;BYMONTH=6 without BYDAY/BYMONTHDAY
         let rrule2: crate::rrule::RRule = "FREQ=YEARLY;BYMONTH=6;COUNT=2".parse().unwrap();
         assert_eq!(rrule2.frequency, crate::Frequency::Yearly);
-        assert_eq!(rrule2.by_month, Some(6));
+        assert_eq!(rrule2.by_month, vec![6]);
 
         // 3. FREQ=MONTHLY without BYDAY/BYMONTHDAY and negative BYMONTHDAY=-1
         let ics_content = "BEGIN:VCALENDAR\r\n\
@@ -857,13 +911,245 @@ END:VEVENT";
         assert_eq!(cal1, cal2);
 
         // Verify lightweight error equality and clone
-        let missing_summary = "BEGIN:VEVENT\r\nDTSTART:20230101\r\nEND:VEVENT";
-        let err = missing_summary.parse::<VEvent>().unwrap_err();
+        let missing_dtstart = "BEGIN:VEVENT\r\nSUMMARY:No Start\r\nEND:VEVENT";
+        let err = missing_dtstart.parse::<VEvent>().unwrap_err();
         assert_eq!(
             err.clone(),
             crate::errors::VEventParseError::MissingMandatoryField {
-                field: "SUMMARY".to_string()
+                field: "DTSTART".to_string()
             }
         );
+    }
+
+    #[test]
+    fn test_rfc1_vevent_duration_default_date_end_optional_summary_and_uid() {
+        // 1. VEVENT with DURATION (PT1H30M), UID, and no SUMMARY
+        let ev_with_duration = "BEGIN:VEVENT\r\n\
+UID:event-123@example.com\r\n\
+DTSTART:20230101T090000Z\r\n\
+DURATION:PT1H30M\r\n\
+END:VEVENT";
+        let ev: VEvent = ev_with_duration.parse().unwrap();
+        assert_eq!(ev.uid.as_deref(), Some("event-123@example.com"));
+        assert_eq!(ev.summary, "");
+        assert_eq!(ev.dt_end - ev.dt_start, chrono::Duration::minutes(90));
+
+        // 2. VEVENT with WholeDay DTSTART and no DTEND/DURATION defaults to 1 day
+        let all_day_ev = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:New Year\r\n\
+END:VEVENT";
+        let ev_day: VEvent = all_day_ev.parse().unwrap();
+        assert_eq!(
+            ev_day.dt_end,
+            DateOrDateTime::WholeDay(chrono::NaiveDate::from_ymd_opt(2023, 1, 2).unwrap())
+        );
+
+        // 3. VEVENT with both DTEND and DURATION must fail per RFC 5545 §3.6.1
+        let invalid_both = "BEGIN:VEVENT\r\n\
+DTSTART:20230101T090000Z\r\n\
+DTEND:20230101T100000Z\r\n\
+DURATION:PT1H\r\n\
+SUMMARY:Conflict\r\n\
+END:VEVENT";
+        assert!(invalid_both.parse::<VEvent>().is_err());
+    }
+
+    #[test]
+    fn test_rfc2_rdate_and_recurrence_id_override() {
+        // 1. RDATE adds additional recurrence instances in chronological order
+        let ev_rdate: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:With RDATE\r\n\
+RRULE:FREQ=DAILY;COUNT=2\r\n\
+RDATE;VALUE=DATE:20230110,20230105\r\n\
+EXDATE;VALUE=DATE:20230105\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let occs: Vec<_> = ev_rdate.into_iter().collect();
+        assert_eq!(occs.len(), 3);
+        assert_eq!(occs[0].start.day(), 1);
+        assert_eq!(occs[1].start.day(), 2);
+        assert_eq!(occs[2].start.day(), 10);
+
+        // 2. RECURRENCE-ID overrides a specific instance of a recurring VEVENT sharing the same UID
+        let cal_str = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+UID:team-sync@example.com\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Daily Sync\r\n\
+RRULE:FREQ=DAILY;COUNT=3\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+UID:team-sync@example.com\r\n\
+RECURRENCE-ID;VALUE=DATE:20230102\r\n\
+DTSTART;VALUE=DATE:20230105\r\n\
+SUMMARY:Moved Daily Sync\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+        let cal: VCalendar = cal_str.parse().unwrap();
+        let start = "20230101".parse::<DateOrDateTime>().unwrap();
+        let end = "20230110".parse::<DateOrDateTime>().unwrap();
+        let all_occs = cal.occurrences_between(start, end).unwrap();
+        assert_eq!(all_occs.len(), 3);
+        assert_eq!(all_occs[0].1.start.day(), 1);
+        assert_eq!(all_occs[1].1.start.day(), 3);
+        assert_eq!(all_occs[2].1.start.day(), 5);
+        assert_eq!(all_occs[2].0.summary, "Moved Daily Sync");
+    }
+
+    #[test]
+    fn test_rfc3_rrule_count_until_exclusivity_until_display_and_wkst() {
+        use crate::RRule;
+        // 1. COUNT and UNTIL are mutually exclusive per RFC 5545 §3.3.10
+        assert!(
+            "FREQ=DAILY;COUNT=5;UNTIL=20230110T000000Z"
+                .parse::<RRule>()
+                .is_err()
+        );
+
+        // 2. RRule Display preserves UNTIL and WKST
+        let rrule_until: RRule = "FREQ=DAILY;UNTIL=20230110;WKST=SU".parse().unwrap();
+        let formatted = rrule_until.to_string();
+        assert!(formatted.contains("UNTIL=20230110"), "got: {formatted}");
+        assert!(formatted.contains("WKST=SU"), "got: {formatted}");
+
+        // 3. WKST=SU changes week boundaries for INTERVAL > 1 in WEEKLY recurrence
+        // Saturday 2023-01-07:
+        // - Under WKST=MO (default), Sat Jan 7 and Sun Jan 8 are in the same week (Jan 2..Jan 8).
+        // - Under WKST=SU, Sat Jan 7 is the end of week 1 (Jan 1..Jan 7), Sun Jan 8 is start of week 2 (skipped by INTERVAL=2!),
+        //   and week 3 (Jan 15..Jan 21) has Sun Jan 15 and Sat Jan 21.
+        let ev_wkst_su: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230107\r\n\
+SUMMARY:Biweekly Weekend\r\n\
+RRULE:FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=SA,SU;COUNT=4\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let days: Vec<u32> = ev_wkst_su.into_iter().map(|o| o.start.day()).collect();
+        assert_eq!(days, vec![7, 15, 21, 29]);
+    }
+
+    #[test]
+    fn test_rfc4_multi_bymonth_bymonthday_and_bysetpos() {
+        // 1. Multi-value BYMONTHDAY=1,15,-1 in MONTHLY recurrence
+        let ev_bmd: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Paydays\r\n\
+RRULE:FREQ=MONTHLY;BYMONTHDAY=1,15,-1;COUNT=4\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let bmd_dates: Vec<(u32, u32)> = ev_bmd
+            .into_iter()
+            .map(|o| (o.start.month(), o.start.day()))
+            .collect();
+        assert_eq!(bmd_dates, vec![(1, 1), (1, 15), (1, 31), (2, 1)]);
+
+        // 2. Multi-value BYMONTH=6,12 in YEARLY recurrence
+        let ev_bm: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230610\r\n\
+SUMMARY:Semi-Annual Review\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=6,12;BYMONTHDAY=10;COUNT=3\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let bm_dates: Vec<(i32, u32, u32)> = ev_bm
+            .into_iter()
+            .map(|o| (o.start.year(), o.start.month(), o.start.day()))
+            .collect();
+        assert_eq!(bm_dates, vec![(2023, 6, 10), (2023, 12, 10), (2024, 6, 10)]);
+
+        // 3. BYSETPOS=-1 with BYDAY=MO,TU,WE,TH,FR ("last weekday of the month")
+        let ev_setpos: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230131\r\n\
+SUMMARY:Last Weekday of Month\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1;COUNT=3\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let setpos_dates: Vec<(u32, u32)> = ev_setpos
+            .into_iter()
+            .map(|o| (o.start.month(), o.start.day()))
+            .collect();
+        // Jan 31 2023 (Tue), Feb 28 2023 (Tue), Mar 31 2023 (Fri)
+        assert_eq!(setpos_dates, vec![(1, 31), (2, 28), (3, 31)]);
+    }
+
+    #[test]
+    fn test_rfc5_custom_vtimezone_non_iana_tzid_resolution() {
+        let cal_str = "BEGIN:VCALENDAR\r\n\
+BEGIN:VTIMEZONE\r\n\
+TZID:W. Europe Standard Time\r\n\
+BEGIN:STANDARD\r\n\
+DTSTART:19701025T030000\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU\r\n\
+TZOFFSETFROM:+0200\r\n\
+TZOFFSETTO:+0100\r\n\
+END:STANDARD\r\n\
+BEGIN:DAYLIGHT\r\n\
+DTSTART:19700329T020000\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU\r\n\
+TZOFFSETFROM:+0100\r\n\
+TZOFFSETTO:+0200\r\n\
+END:DAYLIGHT\r\n\
+END:VTIMEZONE\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=\"W. Europe Standard Time\":20230115T100000\r\n\
+DTEND;TZID=\"W. Europe Standard Time\":20230115T110000\r\n\
+SUMMARY:Winter Event (+01:00)\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=\"W. Europe Standard Time\":20230715T100000\r\n\
+DTEND;TZID=\"W. Europe Standard Time\":20230715T110000\r\n\
+SUMMARY:Summer Event (+02:00)\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal: VCalendar = cal_str.parse().unwrap();
+        assert_eq!(cal.events.len(), 2);
+        // Winter: 10:00 local at +01:00 == 09:00 UTC
+        assert_eq!(cal.events[0].dt_start.hour(), 9);
+        // Summer: 10:00 local at +02:00 == 08:00 UTC
+        assert_eq!(cal.events[1].dt_start.hour(), 8);
+    }
+
+    #[test]
+    fn test_rfc6_case_insensitivity_rfc6868_and_vcalendar_metadata() {
+        // 1. Case-insensitive BEGIN/END, property names, parameters, frequencies, and weekdays
+        let cal_str = "begin:vcalendar\r\n\
+version:2.0\r\n\
+prodid:-//Example Corp//CalClient//EN\r\n\
+calscale:GREGORIAN\r\n\
+method:PUBLISH\r\n\
+begin:vevent\r\n\
+uid:case-test@example.com\r\n\
+dtstart;tzid=\"Europe/Rome\":20230102T090000\r\n\
+duration:pt1h\r\n\
+summary;cn=\"John ^'Doc^' Doe^nJr.\":Case Insensitive Event\r\n\
+rrule:freq=weekly;byday=mo,we;count=2\r\n\
+end:vevent\r\n\
+end:vcalendar";
+
+        let cal: VCalendar = cal_str.parse().unwrap();
+        assert_eq!(cal.version.as_deref(), Some("2.0"));
+        assert_eq!(
+            cal.prod_id.as_deref(),
+            Some("-//Example Corp//CalClient//EN")
+        );
+        assert_eq!(cal.calscale.as_deref(), Some("GREGORIAN"));
+        assert_eq!(cal.method.as_deref(), Some("PUBLISH"));
+        assert_eq!(cal.events.len(), 1);
+        assert_eq!(cal.events[0].summary, "Case Insensitive Event");
+        let occs: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occs.len(), 2);
+
+        // 2. RFC 6868 parameter value caret-unescaping (^' -> ", ^n -> \n, ^^ -> ^)
+        let line = crate::property::ContentLine::parse(
+            " ATTENDEE;CN=\"John ^'Doc^' Doe^nLine2^^End\":mailto:john@example.com",
+        )
+        .unwrap();
+        assert_eq!(line.param("cn"), Some("John \"Doc\" Doe\nLine2^End"));
     }
 }
