@@ -9,10 +9,12 @@ pub struct WeekdayRule {
 }
 
 impl WeekdayRule {
+    #[must_use]
     pub fn new(offset: Option<i8>, weekday: Weekday) -> Self {
         Self { offset, weekday }
     }
 
+    #[must_use]
     pub fn plain(weekday: Weekday) -> Self {
         Self {
             offset: None,
@@ -20,6 +22,7 @@ impl WeekdayRule {
         }
     }
 
+    #[must_use]
     pub fn with_offset(offset: i8, weekday: Weekday) -> Self {
         Self {
             offset: Some(offset),
