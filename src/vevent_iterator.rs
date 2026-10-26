@@ -1,5 +1,5 @@
 use chrono::{Datelike, Duration, NaiveDate, TimeZone, Timelike, Utc};
-use std::ops::Range;
+use std::{cmp::Ordering, ops::Range};
 
 use crate::{VEvent, date_or_date_time::DateOrDateTime, frequency::Frequency, rrule::RRule};
 
@@ -388,7 +388,7 @@ impl<'a> VEventIterator<'a> {
     }
 }
 
-impl<'a> Iterator for VEventIterator<'a> {
+impl Iterator for VEventIterator<'_> {
     type Item = Range<DateOrDateTime>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -401,17 +401,17 @@ impl<'a> Iterator for VEventIterator<'a> {
         let rdate_candidate = self.next_valid_rdate();
 
         let next_start = match (self.peeked_rrule, rdate_candidate) {
-            (Some(rrule_dt), Some(rdate_dt)) => {
-                if rrule_dt < rdate_dt {
-                    self.peeked_rrule.take()
-                } else if rdate_dt < rrule_dt {
+            (Some(rrule_dt), Some(rdate_dt)) => match rrule_dt.cmp(&rdate_dt) {
+                Ordering::Less => self.peeked_rrule.take(),
+                Ordering::Greater => {
                     self.rdate_idx += 1;
                     Some(rdate_dt)
-                } else {
+                }
+                Ordering::Equal => {
                     self.rdate_idx += 1;
                     self.peeked_rrule.take()
                 }
-            }
+            },
             (Some(_), None) => self.peeked_rrule.take(),
             (None, Some(rdate_dt)) => {
                 self.rdate_idx += 1;

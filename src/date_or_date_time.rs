@@ -1,6 +1,6 @@
 use crate::by_day::WeekdayRule;
 use crate::errors::{DateIntersectError, SubstitutionError, TzIdDateTimeParseError};
-use crate::property::split_outside_quotes;
+use crate::property::{find_unquoted_colon, split_outside_quotes};
 use chrono::{
     DateTime, Datelike, Duration, FixedOffset, Local, LocalResult, NaiveDate, NaiveDateTime,
     TimeZone, Timelike, Utc, Weekday,
@@ -62,18 +62,7 @@ impl TryFrom<&str> for DateOrDateTime {
     type Error = TzIdDateTimeParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
-        let mut in_quotes = false;
-        let mut colon_idx = None;
-        for (idx, b) in line.bytes().enumerate() {
-            if b == b'"' {
-                in_quotes = !in_quotes;
-            } else if b == b':' && !in_quotes {
-                colon_idx = Some(idx);
-                break;
-            }
-        }
-
-        if let Some(colon_idx) = colon_idx {
+        if let Some(colon_idx) = find_unquoted_colon(line) {
             let params_str = &line[..colon_idx];
             let value = &line[colon_idx + 1..];
             let mut params = Vec::new();
