@@ -3,7 +3,6 @@ use crate::{
     date_or_date_time::DateOrDateTime,
     errors::RRuleParseError,
     frequency::Frequency,
-    string_to_date_or_datetime,
 };
 use std::{fmt, str::FromStr};
 
@@ -132,7 +131,7 @@ impl FromStr for RRule {
         }
 
         let until: Option<DateOrDateTime> = find_rrule_token(&tokens, "UNTIL=")
-            .map(string_to_date_or_datetime)
+            .map(DateOrDateTime::parse_value_str)
             .transpose()?;
 
         let count: Option<u32> = find_rrule_token(&tokens, "COUNT=")

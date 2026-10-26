@@ -38,15 +38,21 @@ pub struct OccurrenceResult {
 }
 
 impl VEvent {
+    #[must_use]
     pub fn first_occurrence(&self) -> DateOrDateTime {
         self.dt_start
+    }
+
+    #[must_use]
+    pub fn iter(&self) -> VEventIterator<'_> {
+        VEventIterator::new(self)
     }
 
     pub fn next_occurrence_since(
         &self,
         dt: DateOrDateTime,
     ) -> Result<Option<OccurrenceResult>, DateIntersectError> {
-        for occurrence in self.into_iter() {
+        for occurrence in self.iter() {
             let event_overlap = {
                 // handle the special case of start and end dates being WholeDay. We consider the
                 // final date the previous day when DTEND > DTSTART (since DTEND is exclusive for DATE).
@@ -93,7 +99,7 @@ impl VEvent {
         }
 
         let mut results = Vec::new();
-        for occurrence in self.into_iter() {
+        for occurrence in self.iter() {
             let effective_end =
                 if let (DateOrDateTime::WholeDay(wd_start), DateOrDateTime::WholeDay(wd_end)) =
                     (occurrence.start, occurrence.end)
@@ -320,10 +326,6 @@ impl<'a> IntoIterator for &'a VEvent {
     fn into_iter(self) -> Self::IntoIter {
         VEventIterator::new(self)
     }
-}
-
-pub(crate) fn string_to_date_or_datetime(s: &str) -> Result<DateOrDateTime, chrono::ParseError> {
-    DateOrDateTime::parse_value_str(s)
 }
 
 #[cfg(test)]
