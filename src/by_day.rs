@@ -80,7 +80,7 @@ pub fn parse_by_day(s: &str) -> Result<Vec<WeekdayRule>, ByDayParseError> {
 }
 
 pub(crate) fn to_chrono_weekday(s: &str) -> Result<Weekday, ByDayParseError> {
-    match s {
+    match s.to_ascii_uppercase().as_str() {
         "SU" => Ok(Weekday::Sun),
         "MO" => Ok(Weekday::Mon),
         "TU" => Ok(Weekday::Tue),

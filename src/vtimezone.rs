@@ -153,7 +153,7 @@ impl TryFrom<Block> for VTimezone {
             .inner_lines
             .iter()
             .filter_map(|l| ContentLine::parse(l))
-            .find(|p| p.name == "TZID")
+            .find(|p| p.name.eq_ignore_ascii_case("TZID"))
             .map(|p| p.value.to_owned())
             .ok_or(VTimezoneParseError::TZIDTagNotFound)?;
 
@@ -183,7 +183,7 @@ impl TryFrom<Block> for VTimezoneOffset {
             let prop = ContentLine::parse(s)
                 .ok_or_else(|| VTimezoneOffsetParseError::MissingColon { line: s.to_owned() })?;
 
-            match prop.name {
+            match prop.name.to_ascii_uppercase().as_str() {
                 "TZNAME" => tz_name = Some(prop.value.to_owned()),
                 "TZOFFSETFROM" => tz_offset_from = Some(parse_utc_offset(prop.value)?),
                 "TZOFFSETTO" => tz_offset_to = Some(parse_utc_offset(prop.value)?),

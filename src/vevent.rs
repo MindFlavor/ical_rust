@@ -175,7 +175,7 @@ impl VEvent {
             let prop =
                 ContentLine::parse(line).ok_or_else(|| VEventParseError::missing_colon(line))?;
 
-            match prop.name {
+            match prop.name.to_ascii_uppercase().as_str() {
                 "UID" => {
                     uid = Some(unescape_ical_text(prop.value));
                 }

@@ -98,22 +98,31 @@ impl fmt::Display for RRule {
     }
 }
 
+fn find_rrule_token<'a>(tokens: &[&'a str], prefix: &str) -> Option<&'a str> {
+    tokens.iter().find_map(|item| {
+        if item.len() >= prefix.len()
+            && item.is_char_boundary(prefix.len())
+            && item[..prefix.len()].eq_ignore_ascii_case(prefix)
+        {
+            Some(&item[prefix.len()..])
+        } else {
+            None
+        }
+    })
+}
+
 impl FromStr for RRule {
     type Err = RRuleParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let tokens: Vec<_> = s.split(';').collect();
-        let freq = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("FREQ="))
+        let freq = find_rrule_token(&tokens, "FREQ=")
             .ok_or_else(|| RRuleParseError::MissingFrequencyToken { line: s.to_owned() })?;
         let frequency = freq
             .parse()
             .map_err(|err| RRuleParseError::FrequencyParseError { err })?;
 
-        let interval: u32 = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("INTERVAL="))
+        let interval: u32 = find_rrule_token(&tokens, "INTERVAL=")
             .map(|item| item.parse())
             .transpose()?
             .unwrap_or(1);
@@ -122,15 +131,11 @@ impl FromStr for RRule {
             return Err(RRuleParseError::InvalidInterval { interval });
         }
 
-        let until: Option<DateOrDateTime> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("UNTIL="))
+        let until: Option<DateOrDateTime> = find_rrule_token(&tokens, "UNTIL=")
             .map(string_to_date_or_datetime)
             .transpose()?;
 
-        let count: Option<u32> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("COUNT="))
+        let count: Option<u32> = find_rrule_token(&tokens, "COUNT=")
             .map(|item| item.parse())
             .transpose()?;
 
@@ -138,9 +143,7 @@ impl FromStr for RRule {
             return Err(RRuleParseError::BothCountAndUntilSpecified);
         }
 
-        let by_month: Vec<u8> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("BYMONTH="))
+        let by_month: Vec<u8> = find_rrule_token(&tokens, "BYMONTH=")
             .map(|item| {
                 item.split(',')
                     .map(|m| m.parse::<u8>())
@@ -155,9 +158,7 @@ impl FromStr for RRule {
             }
         }
 
-        let by_month_day: Vec<i8> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("BYMONTHDAY="))
+        let by_month_day: Vec<i8> = find_rrule_token(&tokens, "BYMONTHDAY=")
             .map(|item| {
                 item.split(',')
                     .map(|d| d.parse::<i8>())
@@ -172,9 +173,7 @@ impl FromStr for RRule {
             }
         }
 
-        let by_day: Vec<WeekdayRule> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("BYDAY="))
+        let by_day: Vec<WeekdayRule> = find_rrule_token(&tokens, "BYDAY=")
             .map(parse_by_day)
             .transpose()
             .map_err(|error| RRuleParseError::ByDayParserError {
@@ -183,9 +182,7 @@ impl FromStr for RRule {
             })?
             .unwrap_or_default();
 
-        let by_set_pos: Vec<i16> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("BYSETPOS="))
+        let by_set_pos: Vec<i16> = find_rrule_token(&tokens, "BYSETPOS=")
             .map(|item| {
                 item.split(',')
                     .map(|p| p.parse::<i16>())
@@ -200,9 +197,7 @@ impl FromStr for RRule {
             }
         }
 
-        let wkst: Option<chrono::Weekday> = tokens
-            .iter()
-            .find_map(|item| item.strip_prefix("WKST="))
+        let wkst: Option<chrono::Weekday> = find_rrule_token(&tokens, "WKST=")
             .map(to_chrono_weekday)
             .transpose()
             .map_err(|error| RRuleParseError::ByDayParserError {

@@ -1,7 +1,9 @@
+use std::borrow::Cow;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContentLine<'a> {
     pub name: &'a str,
-    pub params: Vec<(&'a str, &'a str)>,
+    pub params: Vec<(&'a str, Cow<'a, str>)>,
     pub value: &'a str,
     pub raw_after_semicolon: Option<&'a str>,
 }
@@ -25,18 +27,18 @@ impl<'a> ContentLine<'a> {
 
         let (name, params_str, raw_after_semicolon) = match name_and_params.find(';') {
             Some(semi_idx) => (
-                &name_and_params[..semi_idx],
+                name_and_params[..semi_idx].trim(),
                 Some(&name_and_params[semi_idx + 1..]),
                 Some(&line[semi_idx + 1..]),
             ),
-            None => (name_and_params, None, None),
+            None => (name_and_params.trim(), None, None),
         };
 
         let mut params = Vec::new();
         if let Some(p_str) = params_str {
             for part in split_outside_quotes(p_str, b';') {
                 if let Some((k, v)) = part.split_once('=') {
-                    params.push((k, v.trim_matches('"')));
+                    params.push((k, unescape_rfc6868_param(v.trim_matches('"'))));
                 }
             }
         }
@@ -49,12 +51,37 @@ impl<'a> ContentLine<'a> {
         })
     }
 
-    pub fn param(&self, key: &str) -> Option<&'a str> {
+    pub fn param(&self, key: &str) -> Option<&str> {
         self.params
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(key))
-            .map(|(_, v)| *v)
+            .map(|(_, v)| v.as_ref())
     }
+}
+
+pub fn unescape_rfc6868_param(s: &str) -> Cow<'_, str> {
+    if !s.contains('^') {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '^' {
+            match chars.next() {
+                Some('n') => out.push('\n'),
+                Some('^') => out.push('^'),
+                Some('\'') => out.push('"'),
+                Some(other) => {
+                    out.push('^');
+                    out.push(other);
+                }
+                None => out.push('^'),
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
 }
 
 pub(crate) fn split_outside_quotes(s: &str, delimiter: u8) -> Vec<&str> {

@@ -93,26 +93,26 @@ impl TryFrom<&str> for DateOrDateTime {
 }
 
 impl DateOrDateTime {
-    pub fn from_params_and_value(
-        params: &[(&str, &str)],
+    pub fn from_params_and_value<K: AsRef<str>, V: AsRef<str>>(
+        params: &[(K, V)],
         value: &str,
     ) -> Result<Self, TzIdDateTimeParseError> {
         Self::from_params_and_value_with_timezones(params, value, &[])
     }
 
-    pub fn from_params_and_value_with_timezones(
-        params: &[(&str, &str)],
+    pub fn from_params_and_value_with_timezones<K: AsRef<str>, V: AsRef<str>>(
+        params: &[(K, V)],
         value: &str,
         timezones: &[crate::vtimezone::VTimezone],
     ) -> Result<Self, TzIdDateTimeParseError> {
         let value_type = params
             .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("VALUE"))
-            .map(|(_, v)| *v);
+            .find(|(k, _)| k.as_ref().eq_ignore_ascii_case("VALUE"))
+            .map(|(_, v)| v.as_ref());
         let tzid = params
             .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("TZID"))
-            .map(|(_, v)| *v);
+            .find(|(k, _)| k.as_ref().eq_ignore_ascii_case("TZID"))
+            .map(|(_, v)| v.as_ref());
 
         if value_type.is_some_and(|v| v.eq_ignore_ascii_case("DATE")) {
             let date = NaiveDate::parse_from_str(value, "%Y%m%d")?;

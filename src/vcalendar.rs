@@ -2,6 +2,7 @@ use crate::VEvent;
 use crate::block::Block;
 use crate::date_or_date_time::DateOrDateTime;
 use crate::errors::{DateIntersectError, VCalendarParseError};
+use crate::property::{ContentLine, unescape_ical_text};
 use crate::vevent::OccurrenceResult;
 use crate::vtimezone::VTimezone;
 use std::ops::Range;
@@ -9,6 +10,10 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VCalendar {
+    pub version: Option<String>,
+    pub prod_id: Option<String>,
+    pub calscale: Option<String>,
+    pub method: Option<String>,
     pub timezones: Vec<VTimezone>,
     pub events: Vec<VEvent>,
 }
@@ -73,6 +78,23 @@ impl TryFrom<Block> for VCalendar {
             return Err(VCalendarParseError::UnsupportedTagError { tag: block.name });
         }
 
+        let mut version = None;
+        let mut prod_id = None;
+        let mut calscale = None;
+        let mut method = None;
+
+        for line in &block.inner_lines {
+            if let Some(prop) = ContentLine::parse(line) {
+                match prop.name.to_ascii_uppercase().as_str() {
+                    "VERSION" => version = Some(prop.value.to_owned()),
+                    "PRODID" => prod_id = Some(unescape_ical_text(prop.value)),
+                    "CALSCALE" => calscale = Some(prop.value.to_owned()),
+                    "METHOD" => method = Some(prop.value.to_owned()),
+                    _ => {}
+                }
+            }
+        }
+
         let mut timezones = Vec::new();
         let mut event_blocks = Vec::new();
 
@@ -109,7 +131,14 @@ impl TryFrom<Block> for VCalendar {
             }
         }
 
-        Ok(Self { timezones, events })
+        Ok(Self {
+            version,
+            prod_id,
+            calscale,
+            method,
+            timezones,
+            events,
+        })
     }
 }
 
@@ -1084,5 +1113,43 @@ END:VCALENDAR";
         assert_eq!(cal.events[0].dt_start.hour(), 9);
         // Summer: 10:00 local at +02:00 == 08:00 UTC
         assert_eq!(cal.events[1].dt_start.hour(), 8);
+    }
+
+    #[test]
+    fn test_rfc6_case_insensitivity_rfc6868_and_vcalendar_metadata() {
+        // 1. Case-insensitive BEGIN/END, property names, parameters, frequencies, and weekdays
+        let cal_str = "begin:vcalendar\r\n\
+version:2.0\r\n\
+prodid:-//Example Corp//CalClient//EN\r\n\
+calscale:GREGORIAN\r\n\
+method:PUBLISH\r\n\
+begin:vevent\r\n\
+uid:case-test@example.com\r\n\
+dtstart;tzid=\"Europe/Rome\":20230102T090000\r\n\
+duration:pt1h\r\n\
+summary;cn=\"John ^'Doc^' Doe^nJr.\":Case Insensitive Event\r\n\
+rrule:freq=weekly;byday=mo,we;count=2\r\n\
+end:vevent\r\n\
+end:vcalendar";
+
+        let cal: VCalendar = cal_str.parse().unwrap();
+        assert_eq!(cal.version.as_deref(), Some("2.0"));
+        assert_eq!(
+            cal.prod_id.as_deref(),
+            Some("-//Example Corp//CalClient//EN")
+        );
+        assert_eq!(cal.calscale.as_deref(), Some("GREGORIAN"));
+        assert_eq!(cal.method.as_deref(), Some("PUBLISH"));
+        assert_eq!(cal.events.len(), 1);
+        assert_eq!(cal.events[0].summary, "Case Insensitive Event");
+        let occs: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occs.len(), 2);
+
+        // 2. RFC 6868 parameter value caret-unescaping (^' -> ", ^n -> \n, ^^ -> ^)
+        let line = crate::property::ContentLine::parse(
+            " ATTENDEE;CN=\"John ^'Doc^' Doe^nLine2^^End\":mailto:john@example.com",
+        )
+        .unwrap();
+        assert_eq!(line.param("cn"), Some("John \"Doc\" Doe\nLine2^End"));
     }
 }
