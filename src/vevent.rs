@@ -140,6 +140,15 @@ impl TryFrom<Block> for VEvent {
     type Error = VEventParseError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
+        Self::try_from_block_with_timezones(block, &[])
+    }
+}
+
+impl VEvent {
+    pub fn try_from_block_with_timezones(
+        block: Block,
+        timezones: &[crate::vtimezone::VTimezone],
+    ) -> Result<Self, VEventParseError> {
         if block.name != "VEVENT" {
             return Err(VEventParseError::UnsupportedTag { tag: block.name });
         }
@@ -171,27 +180,31 @@ impl TryFrom<Block> for VEvent {
                     uid = Some(unescape_ical_text(prop.value));
                 }
                 "RECURRENCE-ID" => {
-                    recurrence_id = Some(DateOrDateTime::from_params_and_value(
+                    recurrence_id = Some(DateOrDateTime::from_params_and_value_with_timezones(
                         &prop.params,
                         prop.value,
+                        timezones,
                     )?);
                 }
                 "LAST-MODIFIED" => {
-                    dt_last_modified = Some(DateOrDateTime::from_params_and_value(
+                    dt_last_modified = Some(DateOrDateTime::from_params_and_value_with_timezones(
                         &prop.params,
                         prop.value,
+                        timezones,
                     )?);
                 }
                 "DTSTART" => {
-                    dt_start = Some(DateOrDateTime::from_params_and_value(
+                    dt_start = Some(DateOrDateTime::from_params_and_value_with_timezones(
                         &prop.params,
                         prop.value,
+                        timezones,
                     )?);
                 }
                 "DTEND" => {
-                    dt_end = Some(DateOrDateTime::from_params_and_value(
+                    dt_end = Some(DateOrDateTime::from_params_and_value_with_timezones(
                         &prop.params,
                         prop.value,
+                        timezones,
                     )?);
                 }
                 "DURATION" => {
@@ -202,15 +215,17 @@ impl TryFrom<Block> for VEvent {
                     })?);
                 }
                 "CREATED" => {
-                    dt_created = Some(DateOrDateTime::from_params_and_value(
+                    dt_created = Some(DateOrDateTime::from_params_and_value_with_timezones(
                         &prop.params,
                         prop.value,
+                        timezones,
                     )?);
                 }
                 "DTSTAMP" => {
-                    dt_stamp = Some(DateOrDateTime::from_params_and_value(
+                    dt_stamp = Some(DateOrDateTime::from_params_and_value_with_timezones(
                         &prop.params,
                         prop.value,
+                        timezones,
                     )?);
                 }
                 "SUMMARY" => {
@@ -240,12 +255,20 @@ impl TryFrom<Block> for VEvent {
                 }
                 "RDATE" => {
                     for val in prop.value.split(',').filter(|s| !s.is_empty()) {
-                        rdates.push(DateOrDateTime::from_params_and_value(&prop.params, val)?);
+                        rdates.push(DateOrDateTime::from_params_and_value_with_timezones(
+                            &prop.params,
+                            val,
+                            timezones,
+                        )?);
                     }
                 }
                 "EXDATE" => {
                     for val in prop.value.split(',').filter(|s| !s.is_empty()) {
-                        exdates.push(DateOrDateTime::from_params_and_value(&prop.params, val)?);
+                        exdates.push(DateOrDateTime::from_params_and_value_with_timezones(
+                            &prop.params,
+                            val,
+                            timezones,
+                        )?);
                     }
                 }
                 _ => {} // ignore

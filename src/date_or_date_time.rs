@@ -97,6 +97,14 @@ impl DateOrDateTime {
         params: &[(&str, &str)],
         value: &str,
     ) -> Result<Self, TzIdDateTimeParseError> {
+        Self::from_params_and_value_with_timezones(params, value, &[])
+    }
+
+    pub fn from_params_and_value_with_timezones(
+        params: &[(&str, &str)],
+        value: &str,
+        timezones: &[crate::vtimezone::VTimezone],
+    ) -> Result<Self, TzIdDateTimeParseError> {
         let value_type = params
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case("VALUE"))
@@ -116,18 +124,36 @@ impl DateOrDateTime {
             if value.is_empty() {
                 return Err(TzIdDateTimeParseError::MissingDateTimePart);
             }
-            let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| {
-                TzIdDateTimeParseError::InvalidTimeZone(e.to_string())
-            })?;
             let naive_dt = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")?;
 
-            if let LocalResult::Single(d) = tz.from_local_datetime(&naive_dt) {
-                Ok(Self::DateTime {
-                    utc: d.with_timezone(&Utc),
-                    tz: Some(tz),
-                })
+            if let Ok(tz) = tz_str.parse::<Tz>() {
+                if let LocalResult::Single(d) = tz.from_local_datetime(&naive_dt) {
+                    Ok(Self::DateTime {
+                        utc: d.with_timezone(&Utc),
+                        tz: Some(tz),
+                    })
+                } else {
+                    Err(TzIdDateTimeParseError::AmbiguousTimeZone)
+                }
+            } else if let Some(vtz) = timezones
+                .iter()
+                .find(|vtz| vtz.tz_id.eq_ignore_ascii_case(tz_str))
+            {
+                let offset = vtz
+                    .offset_at(naive_dt)
+                    .ok_or_else(|| TzIdDateTimeParseError::InvalidTimeZone(tz_str.to_owned()))?;
+                if let LocalResult::Single(d) = offset.from_local_datetime(&naive_dt) {
+                    Ok(Self::DateTime {
+                        utc: d.with_timezone(&Utc),
+                        tz: None,
+                    })
+                } else {
+                    Err(TzIdDateTimeParseError::AmbiguousTimeZone)
+                }
             } else {
-                Err(TzIdDateTimeParseError::AmbiguousTimeZone)
+                Err(TzIdDateTimeParseError::InvalidTimeZone(
+                    "failed to parse timezone".to_owned(),
+                ))
             }
         } else if value_type.is_some_and(|v| v.eq_ignore_ascii_case("DATE-TIME"))
             || params.is_empty()

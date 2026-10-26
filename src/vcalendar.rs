@@ -74,14 +74,19 @@ impl TryFrom<Block> for VCalendar {
         }
 
         let mut timezones = Vec::new();
-        let mut events = Vec::new();
+        let mut event_blocks = Vec::new();
 
         for b in block.inner_blocks {
             match b.name.as_str() {
                 "VTIMEZONE" => timezones.push(VTimezone::try_from(b)?),
-                "VEVENT" => events.push(VEvent::try_from(b)?),
+                "VEVENT" => event_blocks.push(b),
                 _ => {}
             }
+        }
+
+        let mut events = Vec::with_capacity(event_blocks.len());
+        for b in event_blocks {
+            events.push(VEvent::try_from_block_with_timezones(b, &timezones)?);
         }
 
         // Link RECURRENCE-ID overrides to master recurring VEVENTs sharing the same UID
@@ -1041,5 +1046,43 @@ END:VEVENT"
             .collect();
         // Jan 31 2023 (Tue), Feb 28 2023 (Tue), Mar 31 2023 (Fri)
         assert_eq!(setpos_dates, vec![(1, 31), (2, 28), (3, 31)]);
+    }
+
+    #[test]
+    fn test_rfc5_custom_vtimezone_non_iana_tzid_resolution() {
+        let cal_str = "BEGIN:VCALENDAR\r\n\
+BEGIN:VTIMEZONE\r\n\
+TZID:W. Europe Standard Time\r\n\
+BEGIN:STANDARD\r\n\
+DTSTART:19701025T030000\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU\r\n\
+TZOFFSETFROM:+0200\r\n\
+TZOFFSETTO:+0100\r\n\
+END:STANDARD\r\n\
+BEGIN:DAYLIGHT\r\n\
+DTSTART:19700329T020000\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU\r\n\
+TZOFFSETFROM:+0100\r\n\
+TZOFFSETTO:+0200\r\n\
+END:DAYLIGHT\r\n\
+END:VTIMEZONE\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=\"W. Europe Standard Time\":20230115T100000\r\n\
+DTEND;TZID=\"W. Europe Standard Time\":20230115T110000\r\n\
+SUMMARY:Winter Event (+01:00)\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=\"W. Europe Standard Time\":20230715T100000\r\n\
+DTEND;TZID=\"W. Europe Standard Time\":20230715T110000\r\n\
+SUMMARY:Summer Event (+02:00)\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal: VCalendar = cal_str.parse().unwrap();
+        assert_eq!(cal.events.len(), 2);
+        // Winter: 10:00 local at +01:00 == 09:00 UTC
+        assert_eq!(cal.events[0].dt_start.hour(), 9);
+        // Summer: 10:00 local at +02:00 == 08:00 UTC
+        assert_eq!(cal.events[1].dt_start.hour(), 8);
     }
 }
