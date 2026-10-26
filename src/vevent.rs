@@ -77,6 +77,41 @@ impl VEvent {
 
         Ok(None)
     }
+
+    pub fn occurrences_between(
+        &self,
+        start: DateOrDateTime,
+        end: DateOrDateTime,
+    ) -> Result<Vec<Range<DateOrDateTime>>, DateIntersectError> {
+        if start > end {
+            return Err(DateIntersectError::StartDateAfterEndDate);
+        }
+
+        let mut results = Vec::new();
+        for occurrence in self.into_iter() {
+            let effective_end =
+                if let (DateOrDateTime::WholeDay(wd_start), DateOrDateTime::WholeDay(wd_end)) =
+                    (occurrence.start, occurrence.end)
+                {
+                    if wd_end > wd_start {
+                        DateOrDateTime::WholeDay(wd_end - Duration::days(1))
+                    } else {
+                        occurrence.end
+                    }
+                } else {
+                    occurrence.end
+                };
+
+            if occurrence.start > end {
+                break;
+            }
+            if effective_end >= start {
+                results.push(occurrence);
+            }
+        }
+
+        Ok(results)
+    }
 }
 
 impl TryFrom<Block> for VEvent {

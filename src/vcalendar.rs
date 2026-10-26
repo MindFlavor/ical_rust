@@ -1,13 +1,50 @@
 use crate::VEvent;
 use crate::block::Block;
-use crate::errors::VCalendarParseError;
+use crate::date_or_date_time::DateOrDateTime;
+use crate::errors::{DateIntersectError, VCalendarParseError};
+use crate::vevent::OccurrenceResult;
 use crate::vtimezone::VTimezone;
-use either::*;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Default)]
 pub struct VCalendar {
     pub timezones: Vec<VTimezone>,
     pub events: Vec<VEvent>,
+}
+
+impl VCalendar {
+    pub fn occurrences_between(
+        &self,
+        start: DateOrDateTime,
+        end: DateOrDateTime,
+    ) -> Result<Vec<(&VEvent, Range<DateOrDateTime>)>, DateIntersectError> {
+        if start > end {
+            return Err(DateIntersectError::StartDateAfterEndDate);
+        }
+
+        let mut results = Vec::new();
+        for event in &self.events {
+            for occ in event.occurrences_between(start, end)? {
+                results.push((event, occ));
+            }
+        }
+        results.sort_by(|a, b| a.1.start.cmp(&b.1.start));
+        Ok(results)
+    }
+
+    pub fn next_occurrences_since(
+        &self,
+        dt: DateOrDateTime,
+    ) -> Result<Vec<(&VEvent, OccurrenceResult)>, DateIntersectError> {
+        let mut results = Vec::new();
+        for event in &self.events {
+            if let Some(occ) = event.next_occurrence_since(dt)? {
+                results.push((event, occ));
+            }
+        }
+        results.sort_by(|a, b| a.1.occurrence.start.cmp(&b.1.occurrence.start));
+        Ok(results)
+    }
 }
 
 impl TryFrom<&str> for VCalendar {
@@ -27,31 +64,14 @@ impl TryFrom<Block> for VCalendar {
             return Err(VCalendarParseError::UnsupportedTagError { tag: block.name });
         }
 
-        let results = block
-            .inner_blocks
-            .into_iter()
-            .filter_map(|b| match b.name.as_ref() {
-                "VTIMEZONE" => Some(
-                    VTimezone::try_from(b)
-                        .map_err(VCalendarParseError::from)
-                        .map(Left),
-                ),
-                "VEVENT" => Some(
-                    VEvent::try_from(b)
-                        .map_err(VCalendarParseError::from)
-                        .map(Right),
-                ),
-                _ => None,
-            })
-            .collect::<Result<Vec<_>, VCalendarParseError>>()?;
-
         let mut timezones = Vec::new();
         let mut events = Vec::new();
 
-        for result in results {
-            match result {
-                Either::Left(timezone) => timezones.push(timezone),
-                Either::Right(event) => events.push(event),
+        for b in block.inner_blocks {
+            match b.name.as_str() {
+                "VTIMEZONE" => timezones.push(VTimezone::try_from(b)?),
+                "VEVENT" => events.push(VEvent::try_from(b)?),
+                _ => {}
             }
         }
 
@@ -778,5 +798,36 @@ END:VCALENDAR";
         assert_eq!(ev.dt_start.timezone(), Some(chrono_tz::Europe::Rome));
         assert_eq!(ev.summary, "Meeting, Planning; Phase 1\nAgenda");
         assert_eq!(ev.description.as_deref(), Some("Line 1\nLine 2\\End"));
+    }
+
+    #[test]
+    fn test_improvement5_calendar_query_api() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Daily Standup\r\n\
+RRULE:FREQ=DAILY\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230102\r\n\
+SUMMARY:One-Off Review\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let start = "20230102".parse::<DateOrDateTime>().unwrap();
+        let end = "20230104".parse::<DateOrDateTime>().unwrap();
+
+        let between = cal.occurrences_between(start, end).unwrap();
+        assert_eq!(between.len(), 4);
+        assert_eq!(between[0].1.start.day(), 2);
+        assert_eq!(between[1].1.start.day(), 2);
+        assert_eq!(between[2].1.start.day(), 3);
+        assert_eq!(between[3].1.start.day(), 4);
+
+        let next = cal.next_occurrences_since(start).unwrap();
+        assert_eq!(next.len(), 2);
+        assert_eq!(next[0].1.occurrence.start.day(), 2);
+        assert_eq!(next[1].1.occurrence.start.day(), 2);
     }
 }
