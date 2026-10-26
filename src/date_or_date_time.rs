@@ -89,6 +89,9 @@ impl DateOrDateTime {
     }
 
     pub fn move_by_delta(self, delta: &Delta) -> DateOrDateTime {
+        if delta.delta == 0 {
+            return self;
+        }
         let month_start = self
             .substitute(None, None, Some(1), None, None, None)
             .unwrap();
@@ -114,7 +117,7 @@ impl DateOrDateTime {
             .sub(Duration::days(1));
 
         let mut current_delta = delta.delta.abs() - 1;
-        let increment = Duration::days(delta.delta as i64 / delta.delta.abs() as i64);
+        let increment = Duration::days(delta.delta.signum() as i64);
         let mut current_day = if increment.num_days() == 1 {
             month_start
         } else {

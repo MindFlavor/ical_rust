@@ -22,6 +22,8 @@ pub enum ByDayParseError {
     InvalidWeekday { w: String },
     #[error("Invalid delta")]
     InvalidDelta(#[from] ParseIntError),
+    #[error("Delta cannot be zero")]
+    ZeroDelta,
 }
 
 // 3. SubstitutionError (formerly in date_or_date_time.rs)

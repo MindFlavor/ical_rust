@@ -49,6 +49,9 @@ impl FromStr for Delta {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let weekday = to_chrono_weekday(&s[s.len() - 2..])?;
         let delta: i32 = s[..s.len() - 2].parse()?;
+        if delta == 0 {
+            return Err(ByDayParseError::ZeroDelta);
+        }
         Ok(Self { delta, weekday })
     }
 }
@@ -80,5 +83,10 @@ mod tests {
     fn parse_delta() {
         let _: ByDay = "-20MO".parse().unwrap();
         let _: ByDay = "30FR".parse().unwrap();
+    }
+
+    #[test]
+    fn test_issue4_zero_delta_rejected_and_does_not_panic() {
+        assert!("0MO".parse::<ByDay>().is_err());
     }
 }
