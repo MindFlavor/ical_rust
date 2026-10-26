@@ -66,6 +66,12 @@ pub enum RRuleParseError {
     MissingByDayOrByMonthDayError { line: String },
     #[error("Missing BYDAY {line:?})")]
     MissingByDayError { line: String },
+    #[error("Invalid INTERVAL value: {interval} (must be >= 1)")]
+    InvalidInterval { interval: u32 },
+    #[error("Invalid BYMONTH value: {month} (must be 1..=12)")]
+    InvalidByMonth { month: u8 },
+    #[error("Invalid BYMONTHDAY value: {day} (must be -31..=-1 or 1..=31)")]
+    InvalidByMonthDay { day: i8 },
     #[error("ByDayParserError ({error:?}) line == {line:?}")]
     ByDayParserError {
         error: ByDayParseError,

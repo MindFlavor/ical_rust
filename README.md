@@ -24,7 +24,7 @@ Add `ical_rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ical_rust = "0.7.0"
+ical_rust = "0.7.1"
 ```
 
 ---
@@ -34,7 +34,7 @@ ical_rust = "0.7.0"
 Here is a simple example showing how to parse an iCalendar string, access an event, and expand its recurring occurrences:
 
 ```rust
-use ical_rust::{VCalendar, Options};
+use ical_rust::VCalendar;
 
 fn main() {
     // A sample ICS payload containing a recurring event
@@ -58,7 +58,7 @@ END:VCALENDAR";
     println!("Calendar Event Found: {}", event.summary);
 
     // 3. Iterate over the calculated occurrences
-    println!("\nExpanding Recurrence Rule ({}):", event.rrule.as_ref().unwrap().common_options().raw);
+    println!("\nExpanding Recurrence Rule ({}):", event.rrule.as_ref().unwrap());
     for (i, occurrence) in event.into_iter().enumerate() {
         println!("  Occurrence #{}:", i + 1);
         println!("    Start: {:?}", occurrence.start);

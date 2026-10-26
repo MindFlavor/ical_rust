@@ -1,4 +1,4 @@
-use crate::by_day::{ByDay, Delta};
+use crate::by_day::WeekdayRule;
 use crate::errors::{DateIntersectError, SubstitutionError, TzIdDateTimeParseError};
 use chrono::{
     DateTime, Datelike, Duration, FixedOffset, Local, LocalResult, NaiveDate, NaiveDateTime,
@@ -178,11 +178,54 @@ impl DateOrDateTime {
         })
     }
 
-    pub fn next_by_day(self, by_day: &ByDay) -> Self {
-        match by_day {
-            ByDay::Delta(delta) => self.move_by_delta(delta),
-            ByDay::Simple(weekdays) => self.next_weekdays(weekdays),
+    pub fn next_by_day(self, by_day: &[WeekdayRule]) -> Self {
+        let weekdays: Vec<Weekday> = by_day.iter().map(|r| r.weekday).collect();
+        self.next_weekdays(&weekdays)
+    }
+
+    pub fn matching_days_in_month(
+        self,
+        year: i32,
+        month: u32,
+        rules: &[WeekdayRule],
+    ) -> Vec<DateOrDateTime> {
+        let mut days_in_month = Vec::with_capacity(31);
+        for d in 1..=31 {
+            if let Ok(dt) = self.substitute(Some(year), Some(month), Some(d), None, None, None) {
+                days_in_month.push(dt);
+            } else {
+                break;
+            }
         }
+
+        let mut result = Vec::new();
+        for rule in rules {
+            let matching: Vec<DateOrDateTime> = days_in_month
+                .iter()
+                .copied()
+                .filter(|dt| dt.date_naive().weekday() == rule.weekday)
+                .collect();
+
+            match rule.offset {
+                None => result.extend(matching),
+                Some(offset) if offset > 0 => {
+                    if let Some(&dt) = matching.get(offset as usize - 1) {
+                        result.push(dt);
+                    }
+                }
+                Some(offset) if offset < 0 => {
+                    let abs = offset.unsigned_abs() as usize;
+                    if matching.len() >= abs {
+                        result.push(matching[matching.len() - abs]);
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+
+        result.sort();
+        result.dedup();
+        result
     }
 
     pub fn next_weekday(self, weekday: Weekday) -> Self {
@@ -202,59 +245,15 @@ impl DateOrDateTime {
         ret
     }
 
-    pub fn move_by_delta(self, delta: &Delta) -> DateOrDateTime {
-        if delta.delta == 0 {
-            return self;
-        }
-        let month_start = self
-            .substitute(None, None, Some(1), None, None, None)
-            .unwrap();
-
-        let month_end = self
-            .substitute(
-                Some(if self.month() == 12 {
-                    self.year() + 1
-                } else {
-                    self.year()
-                }),
-                Some(if self.month() == 12 {
-                    1
-                } else {
-                    self.month() + 1
-                }),
-                Some(1),
-                None,
-                None,
-                None,
-            )
-            .unwrap()
-            .sub(Duration::days(1));
-
-        let mut current_delta = delta.delta.abs() - 1;
-        let increment = Duration::days(delta.delta.signum() as i64);
-        let mut current_day = if increment.num_days() == 1 {
-            month_start
-        } else {
-            month_end
-        };
-
-        loop {
-            log::debug!(
-                "current_delta = {}, increment = {:?}, current_day = {:?}",
-                current_delta,
-                increment,
-                current_day
-            );
-
-            if current_day.date_naive().weekday() == delta.weekday {
-                if current_delta == 0 {
-                    return current_day;
-                } else {
-                    current_delta -= 1;
-                }
-            }
-
-            current_day = current_day + increment;
+    pub fn move_by_delta(self, rule: &WeekdayRule) -> DateOrDateTime {
+        match rule.offset {
+            Some(0) => self,
+            Some(_) => self
+                .matching_days_in_month(self.year(), self.month(), &[*rule])
+                .into_iter()
+                .next()
+                .unwrap_or(self),
+            None => self.next_weekday(rule.weekday),
         }
     }
 
@@ -504,10 +503,10 @@ mod tests {
     fn move_by_day() {
         let date = DateOrDateTime::WholeDay(NaiveDate::from_ymd_opt(2022, 2, 5).unwrap());
 
-        let first_sunday = date.move_by_delta(&Delta::new(1, Weekday::Sun));
+        let first_sunday = date.move_by_delta(&WeekdayRule::with_offset(1, Weekday::Sun));
         assert_eq!(first_sunday.day(), 6);
 
-        let last_sunday = date.move_by_delta(&Delta::new(-1, Weekday::Sun));
+        let last_sunday = date.move_by_delta(&WeekdayRule::with_offset(-1, Weekday::Sun));
         assert_eq!(last_sunday.day(), 27);
     }
 

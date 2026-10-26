@@ -1,5 +1,5 @@
 use crate::errors::FrequencyParseError;
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Frequency {
@@ -7,6 +7,18 @@ pub enum Frequency {
     Monthly,
     Weekly,
     Daily,
+}
+
+impl fmt::Display for Frequency {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Frequency::Yearly => "YEARLY",
+            Frequency::Monthly => "MONTHLY",
+            Frequency::Weekly => "WEEKLY",
+            Frequency::Daily => "DAILY",
+        };
+        write!(f, "{s}")
+    }
 }
 
 impl FromStr for Frequency {

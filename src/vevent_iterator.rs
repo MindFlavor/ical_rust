@@ -1,12 +1,7 @@
 use chrono::{Datelike, Duration, NaiveDate, TimeZone, Timelike, Utc};
 use std::ops::Range;
 
-use crate::{
-    VEvent,
-    by_day::ByDay,
-    date_or_date_time::DateOrDateTime,
-    rrule::{Options, RRule},
-};
+use crate::{VEvent, date_or_date_time::DateOrDateTime, frequency::Frequency, rrule::RRule};
 
 #[derive(Debug, Clone)]
 pub struct VEventIterator<'a> {
@@ -96,138 +91,143 @@ impl<'a> VEventIterator<'a> {
     ) -> Option<DateOrDateTime> {
         let last_occurrence = Self::to_wall_clock(last_occurrence);
         let dt_start_wall = Self::to_wall_clock(self.event.dt_start);
-        let wall_next = match rrule {
-            RRule::Yearly(_rrule) => Self::with_year_month_clamped_day(
-                last_occurrence,
-                last_occurrence.year() + 1,
-                dt_start_wall.month(),
-                0,
-                dt_start_wall.day(),
-            ),
+        let interval = rrule.interval.max(1);
 
-            RRule::YearlyByMonthByDay(rrule) => {
-                let next_occurrence = last_occurrence.next_by_day(&rrule.day);
-                if next_occurrence.year() == last_occurrence.year()
-                    && next_occurrence.month() == rrule.month as u32
-                    && next_occurrence > last_occurrence
-                {
+        let wall_next = match rrule.frequency {
+            Frequency::Yearly => {
+                let target_month = rrule
+                    .by_month
+                    .map(|m| m as u32)
+                    .unwrap_or_else(|| dt_start_wall.month());
+
+                if !rrule.by_day.is_empty() {
+                    if last_occurrence.month() == target_month {
+                        if let Some(next_in_year) = last_occurrence
+                            .matching_days_in_month(
+                                last_occurrence.year(),
+                                target_month,
+                                &rrule.by_day,
+                            )
+                            .into_iter()
+                            .find(|&d| d > last_occurrence)
+                        {
+                            next_in_year
+                        } else {
+                            let mut year = last_occurrence.year() + interval as i32;
+                            loop {
+                                if let Some(first) = last_occurrence
+                                    .matching_days_in_month(year, target_month, &rrule.by_day)
+                                    .into_iter()
+                                    .next()
+                                {
+                                    break first;
+                                }
+                                year += interval as i32;
+                            }
+                        }
+                    } else {
+                        let mut year = if last_occurrence.month() < target_month {
+                            last_occurrence.year()
+                        } else {
+                            last_occurrence.year() + interval as i32
+                        };
+                        loop {
+                            if let Some(first) = last_occurrence
+                                .matching_days_in_month(year, target_month, &rrule.by_day)
+                                .into_iter()
+                                .next()
+                            {
+                                break first;
+                            }
+                            year += interval as i32;
+                        }
+                    }
+                } else {
+                    Self::with_year_month_clamped_day(
+                        last_occurrence,
+                        last_occurrence.year() + interval as i32,
+                        target_month,
+                        rrule.by_month_day.unwrap_or(0),
+                        dt_start_wall.day(),
+                    )
+                }
+            }
+
+            Frequency::Monthly => {
+                if !rrule.by_day.is_empty() {
+                    if let Some(next_in_month) = last_occurrence
+                        .matching_days_in_month(
+                            last_occurrence.year(),
+                            last_occurrence.month(),
+                            &rrule.by_day,
+                        )
+                        .into_iter()
+                        .find(|&d| d > last_occurrence)
+                    {
+                        next_in_month
+                    } else {
+                        let mut step_months = interval;
+                        loop {
+                            let total_months = (last_occurrence.month() - 1) + step_months;
+                            let year = last_occurrence.year() + (total_months / 12) as i32;
+                            let month = (total_months % 12) + 1;
+                            if let Some(first) = last_occurrence
+                                .matching_days_in_month(year, month, &rrule.by_day)
+                                .into_iter()
+                                .next()
+                            {
+                                break first;
+                            }
+                            step_months += interval;
+                        }
+                    }
+                } else {
+                    let total_months = (last_occurrence.month() - 1) + interval;
+                    let year = last_occurrence.year() + (total_months / 12) as i32;
+                    let month = (total_months % 12) + 1;
+                    Self::with_year_month_clamped_day(
+                        last_occurrence,
+                        year,
+                        month,
+                        rrule.by_month_day.unwrap_or(0),
+                        dt_start_wall.day(),
+                    )
+                }
+            }
+
+            Frequency::Weekly => {
+                if !rrule.by_day.is_empty() {
+                    let interval_i64 = interval as i64;
+                    let mut next_occurrence = last_occurrence.next_by_day(&rrule.by_day);
+
+                    loop {
+                        let dt_start_monday = dt_start_wall.date_naive()
+                            - Duration::days(
+                                dt_start_wall.date_naive().weekday().num_days_from_monday() as i64,
+                            );
+                        let next_monday = next_occurrence.date_naive()
+                            - Duration::days(
+                                next_occurrence
+                                    .date_naive()
+                                    .weekday()
+                                    .num_days_from_monday() as i64,
+                            );
+                        let diff_days = (next_monday - dt_start_monday).num_days();
+                        let diff_weeks = diff_days / 7;
+
+                        if diff_weeks % interval_i64 == 0 {
+                            break;
+                        }
+                        next_occurrence = next_occurrence.next_by_day(&rrule.by_day);
+                    }
+
                     next_occurrence
                 } else {
-                    let next_year = last_occurrence.year()
-                        + rrule.common_options().interval.unwrap_or(1) as i32;
-                    let target_month_start = last_occurrence
-                        .substitute(
-                            Some(next_year),
-                            Some(rrule.month as u32),
-                            Some(1),
-                            None,
-                            None,
-                            None,
-                        )
-                        .unwrap();
-
-                    let mut next_occurrence = target_month_start;
-                    match &rrule.day {
-                        ByDay::Simple(weekdays) => {
-                            if !weekdays.contains(&target_month_start.date_naive().weekday()) {
-                                next_occurrence = target_month_start.next_by_day(&rrule.day);
-                            }
-                        }
-                        ByDay::Delta(_) => {
-                            next_occurrence = target_month_start.next_by_day(&rrule.day);
-                        }
-                    }
-
-                    next_occurrence
+                    last_occurrence + Duration::days(7 * interval as i64)
                 }
             }
 
-            RRule::YearlyByMonthByMonthDay(rrule) => Self::with_year_month_clamped_day(
-                last_occurrence,
-                last_occurrence.year() + 1,
-                rrule.month as u32,
-                rrule.month_day,
-                dt_start_wall.day(),
-            ),
-
-            RRule::MonthlyByMonthDay(rrule) => {
-                let mut year = last_occurrence.year();
-                let mut month = last_occurrence.month() + 1;
-                if month > 12 {
-                    month = 1;
-                    year += 1;
-                }
-                Self::with_year_month_clamped_day(
-                    last_occurrence,
-                    year,
-                    month,
-                    rrule.month_day,
-                    dt_start_wall.day(),
-                )
-            }
-
-            RRule::MonthlyByDay(rrule) => {
-                let interval = rrule.common_options().interval.unwrap_or(1);
-                match &rrule.day {
-                    ByDay::Simple(weekdays) => {
-                        let candidate = last_occurrence.next_by_day(&rrule.day);
-                        if candidate.year() == last_occurrence.year()
-                            && candidate.month() == last_occurrence.month()
-                        {
-                            candidate
-                        } else {
-                            let target_month_start = last_occurrence
-                                .substitute(None, None, Some(1), None, None, None)
-                                .unwrap()
-                                .inc_month(interval);
-                            if weekdays.contains(&target_month_start.date_naive().weekday()) {
-                                target_month_start
-                            } else {
-                                target_month_start.next_by_day(&rrule.day)
-                            }
-                        }
-                    }
-                    ByDay::Delta(_) => {
-                        let next_month = last_occurrence
-                            .substitute(None, None, Some(1), None, None, None)
-                            .unwrap()
-                            .inc_month(interval);
-                        next_month.next_by_day(&rrule.day)
-                    }
-                }
-            }
-
-            RRule::Weekly(_rrule) => last_occurrence + Duration::days(7),
-
-            RRule::WeeklyByDay(rrule) => {
-                let interval = rrule.common_options().interval.unwrap_or(1) as i64;
-                let mut next_occurrence = last_occurrence.next_by_day(&rrule.day);
-
-                loop {
-                    let dt_start_monday = dt_start_wall.date_naive()
-                        - Duration::days(
-                            dt_start_wall.date_naive().weekday().num_days_from_monday() as i64,
-                        );
-                    let next_monday = next_occurrence.date_naive()
-                        - Duration::days(
-                            next_occurrence
-                                .date_naive()
-                                .weekday()
-                                .num_days_from_monday() as i64,
-                        );
-                    let diff_days = (next_monday - dt_start_monday).num_days();
-                    let diff_weeks = diff_days / 7;
-
-                    if diff_weeks % interval == 0 {
-                        break;
-                    }
-                    next_occurrence = next_occurrence.next_by_day(&rrule.day);
-                }
-
-                next_occurrence
-            }
-
-            RRule::Daily(_rrule) => last_occurrence + Duration::days(1),
+            Frequency::Daily => last_occurrence + Duration::days(interval as i64),
         };
 
         let next_occurrence = Self::from_wall_clock(wall_next);
@@ -245,20 +245,7 @@ impl<'a> VEventIterator<'a> {
                 if rrule.is_out_of_count(self.count) {
                     return None;
                 }
-                let mut next_occurrence = Some(last_occurrence);
-                let mut iterations = match rrule {
-                    RRule::WeeklyByDay(_)
-                    | RRule::YearlyByMonthByDay(_)
-                    | RRule::MonthlyByDay(_) => 1,
-                    _ => rrule.common_options().interval.unwrap_or(1),
-                };
-                while iterations > 0 && next_occurrence.is_some() {
-                    next_occurrence =
-                        self.get_next_occurrence_according_to_rule(next_occurrence.unwrap(), rrule);
-                    iterations -= 1;
-                }
-
-                next_occurrence
+                self.get_next_occurrence_according_to_rule(last_occurrence, rrule)
             })
         } else {
             if let Some(rrule) = &self.event.rrule {

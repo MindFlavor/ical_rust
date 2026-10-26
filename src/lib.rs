@@ -10,7 +10,9 @@ mod vevent;
 mod vevent_iterator;
 mod vtimezone;
 
+pub use by_day::*;
 pub use date_or_date_time::*;
+pub use frequency::*;
 pub use rrule::*;
 pub use vcalendar::*;
 pub use vevent::*;

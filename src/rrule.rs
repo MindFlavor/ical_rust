@@ -1,43 +1,67 @@
 use crate::{
-    by_day::ByDay, date_or_date_time::DateOrDateTime, errors::RRuleParseError,
-    frequency::Frequency, string_to_date_or_datetime,
+    by_day::{WeekdayRule, parse_by_day},
+    date_or_date_time::DateOrDateTime,
+    errors::RRuleParseError,
+    frequency::Frequency,
+    string_to_date_or_datetime,
 };
-use std::str::FromStr;
+use std::{fmt, str::FromStr};
 
-pub trait Options: std::fmt::Debug {
-    fn common_options(&self) -> &CommonOptions;
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RRule {
+    pub frequency: Frequency,
+    pub interval: u32,
+    pub count: Option<u32>,
+    pub until: Option<DateOrDateTime>,
+    pub by_month: Option<u8>,
+    pub by_month_day: Option<i8>,
+    pub by_day: Vec<WeekdayRule>,
+}
 
-    fn is_out_of_count(&self, count: u32) -> bool {
+impl RRule {
+    pub fn is_out_of_count(&self, count: u32) -> bool {
         log::trace!(
             "is_out_of_count(self == {:?}, count == {}) called",
             self,
             count
         );
-        self.common_options()
-            .count
+        self.count
             .map(|rrule_count| count >= rrule_count)
             .unwrap_or(false)
     }
 
-    fn is_expired(&self, dt: DateOrDateTime) -> bool {
+    pub fn is_expired(&self, dt: DateOrDateTime) -> bool {
         log::debug!("is_expired(self == {:?}, dt == {:?}) called", self, dt);
-        self.common_options()
-            .until
-            .map(|until| dt > until)
-            .unwrap_or(false)
+        self.until.map(|until| dt > until).unwrap_or(false)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RRule {
-    Yearly(Yearly),
-    YearlyByMonthByMonthDay(YearlyByMonthByMonthDay),
-    YearlyByMonthByDay(YearlyByMonthByDay),
-    MonthlyByMonthDay(MonthlyByMonthDay),
-    MonthlyByDay(MonthlyByDay),
-    WeeklyByDay(WeeklyByDay),
-    Weekly(Weekly),
-    Daily(Daily),
+impl fmt::Display for RRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FREQ={}", self.frequency)?;
+        if self.interval != 1 {
+            write!(f, ";INTERVAL={}", self.interval)?;
+        }
+        if let Some(count) = self.count {
+            write!(f, ";COUNT={count}")?;
+        }
+        if let Some(by_month) = self.by_month {
+            write!(f, ";BYMONTH={by_month}")?;
+        }
+        if let Some(by_month_day) = self.by_month_day {
+            write!(f, ";BYMONTHDAY={by_month_day}")?;
+        }
+        if !self.by_day.is_empty() {
+            let days = self
+                .by_day
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            write!(f, ";BYDAY={days}")?;
+        }
+        Ok(())
+    }
 }
 
 impl FromStr for RRule {
@@ -53,251 +77,72 @@ impl FromStr for RRule {
             .parse()
             .map_err(|err| RRuleParseError::FrequencyParseError { err })?;
 
-        let interval: Option<u32> = tokens
+        let interval: u32 = tokens
             .iter()
-            .find(|item| item.starts_with("INTERVAL="))
-            .map(|item| &item["INTERVAL=".len()..])
+            .find_map(|item| item.strip_prefix("INTERVAL="))
             .map(|item| item.parse())
-            .transpose()?;
+            .transpose()?
+            .unwrap_or(1);
+
+        if interval == 0 {
+            return Err(RRuleParseError::InvalidInterval { interval });
+        }
 
         let until: Option<DateOrDateTime> = tokens
             .iter()
-            .find(|item| item.starts_with("UNTIL="))
-            .map(|item| &item["UNTIL=".len()..])
+            .find_map(|item| item.strip_prefix("UNTIL="))
             .map(string_to_date_or_datetime)
             .transpose()?;
 
-        let count = tokens
+        let count: Option<u32> = tokens
             .iter()
-            .find(|item| item.starts_with("COUNT="))
-            .map(|item| &item["COUNT=".len()..])
-            .map(|s| s.parse())
+            .find_map(|item| item.strip_prefix("COUNT="))
+            .map(|item| item.parse())
             .transpose()?;
 
         let by_month: Option<u8> = tokens
             .iter()
-            .find(|item| item.starts_with("BYMONTH="))
-            .map(|item| &item["BYMONTH=".len()..])
-            .map(|s| s.parse())
+            .find_map(|item| item.strip_prefix("BYMONTH="))
+            .map(|item| item.parse())
             .transpose()?;
+
+        if let Some(month) = by_month
+            && !(1..=12).contains(&month)
+        {
+            return Err(RRuleParseError::InvalidByMonth { month });
+        }
 
         let by_month_day: Option<i8> = tokens
             .iter()
-            .find(|item| item.starts_with("BYMONTHDAY="))
-            .map(|item| &item["BYMONTHDAY=".len()..])
-            .map(|s| s.parse())
+            .find_map(|item| item.strip_prefix("BYMONTHDAY="))
+            .map(|item| item.parse())
             .transpose()?;
 
-        let by_day: Option<ByDay> = tokens
+        if let Some(day) = by_month_day
+            && (day == 0 || !(-31..=31).contains(&day))
+        {
+            return Err(RRuleParseError::InvalidByMonthDay { day });
+        }
+
+        let by_day: Vec<WeekdayRule> = tokens
             .iter()
-            .find(|item| item.starts_with("BYDAY="))
-            .map(|item| &item["BYDAY=".len()..])
-            .map(|s| s.parse())
+            .find_map(|item| item.strip_prefix("BYDAY="))
+            .map(parse_by_day)
             .transpose()
             .map_err(|error| RRuleParseError::ByDayParserError {
                 error,
                 line: s.to_owned(),
-            })?;
+            })?
+            .unwrap_or_default();
 
-        Ok(match frequency {
-            Frequency::Yearly => {
-                if let Some(by_month) = by_month {
-                    if let Some(by_month_day) = by_month_day {
-                        Self::YearlyByMonthByMonthDay(YearlyByMonthByMonthDay {
-                            month: by_month,
-                            month_day: by_month_day,
-                            common_options: CommonOptions::new(s, until, interval, count),
-                        })
-                    } else if let Some(by_day) = by_day {
-                        Self::YearlyByMonthByDay(YearlyByMonthByDay {
-                            month: by_month,
-                            day: by_day,
-                            common_options: CommonOptions::new(s, until, interval, count),
-                        })
-                    } else {
-                        Self::YearlyByMonthByMonthDay(YearlyByMonthByMonthDay {
-                            month: by_month,
-                            month_day: 0,
-                            common_options: CommonOptions::new(s, until, interval, count),
-                        })
-                    }
-                } else {
-                    // we ignore WKST
-                    Self::Yearly(Yearly {
-                        common_options: CommonOptions::new(s, until, interval, count),
-                    })
-                }
-            }
-
-            Frequency::Monthly => {
-                if let Some(by_month_day) = by_month_day {
-                    Self::MonthlyByMonthDay(MonthlyByMonthDay {
-                        month_day: by_month_day,
-                        common_options: CommonOptions::new(s, until, interval, count),
-                    })
-                } else if let Some(by_day) = by_day {
-                    Self::MonthlyByDay(MonthlyByDay {
-                        day: by_day,
-                        common_options: CommonOptions::new(s, until, interval, count),
-                    })
-                } else {
-                    Self::MonthlyByMonthDay(MonthlyByMonthDay {
-                        month_day: 0,
-                        common_options: CommonOptions::new(s, until, interval, count),
-                    })
-                }
-            }
-
-            Frequency::Weekly => {
-                if let Some(day) = by_day {
-                    Self::WeeklyByDay(WeeklyByDay {
-                        day,
-                        common_options: CommonOptions::new(s, until, interval, count),
-                    })
-                } else {
-                    Self::Weekly(Weekly {
-                        common_options: CommonOptions::new(s, until, interval, count),
-                    })
-                }
-            }
-
-            Frequency::Daily => Self::Daily(Daily {
-                common_options: CommonOptions::new(s, until, interval, count),
-            }),
-        })
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
-pub struct CommonOptions {
-    pub raw: String,
-    pub until: Option<DateOrDateTime>,
-    pub interval: Option<u32>,
-    pub count: Option<u32>,
-}
-
-impl CommonOptions {
-    fn new(
-        raw: impl Into<String>,
-        until: Option<DateOrDateTime>,
-        interval: Option<u32>,
-        count: Option<u32>,
-    ) -> Self {
-        Self {
-            raw: raw.into(),
-            until,
+        Ok(Self {
+            frequency,
             interval,
             count,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Yearly {
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct YearlyByMonthByMonthDay {
-    pub month: u8,
-    pub month_day: i8,
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct YearlyByMonthByDay {
-    pub month: u8,
-    pub day: ByDay,
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MonthlyByMonthDay {
-    pub month_day: i8,
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MonthlyByDay {
-    pub day: ByDay,
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct WeeklyByDay {
-    pub day: ByDay,
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Weekly {
-    pub common_options: CommonOptions,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Daily {
-    pub common_options: CommonOptions,
-}
-
-impl Options for Yearly {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for YearlyByMonthByDay {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for YearlyByMonthByMonthDay {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for MonthlyByDay {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for MonthlyByMonthDay {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for Weekly {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for WeeklyByDay {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for Daily {
-    fn common_options(&self) -> &CommonOptions {
-        &self.common_options
-    }
-}
-
-impl Options for RRule {
-    fn common_options(&self) -> &CommonOptions {
-        match self {
-            RRule::Yearly(rrule) => &rrule.common_options,
-            RRule::YearlyByMonthByDay(rrule) => &rrule.common_options,
-            RRule::YearlyByMonthByMonthDay(rrule) => &rrule.common_options,
-            RRule::MonthlyByMonthDay(rrule) => &rrule.common_options,
-            RRule::MonthlyByDay(rrule) => &rrule.common_options,
-            RRule::WeeklyByDay(rrule) => &rrule.common_options,
-            RRule::Weekly(rrule) => &rrule.common_options,
-            RRule::Daily(rrule) => &rrule.common_options,
-        }
+            until,
+            by_month,
+            by_month_day,
+            by_day,
+        })
     }
 }

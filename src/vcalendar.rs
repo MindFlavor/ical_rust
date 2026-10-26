@@ -594,14 +594,12 @@ END:VCALENDAR";
     fn test_issue13_rrule_flexible_token_order_and_monthly_defaults() {
         // 1. FREQ not first
         let rrule1: crate::rrule::RRule = "COUNT=3;FREQ=DAILY".parse().unwrap();
-        assert!(matches!(rrule1, crate::rrule::RRule::Daily(_)));
+        assert_eq!(rrule1.frequency, crate::Frequency::Daily);
 
         // 2. FREQ=YEARLY;BYMONTH=6 without BYDAY/BYMONTHDAY
         let rrule2: crate::rrule::RRule = "FREQ=YEARLY;BYMONTH=6;COUNT=2".parse().unwrap();
-        assert!(matches!(
-            rrule2,
-            crate::rrule::RRule::YearlyByMonthByMonthDay(_)
-        ));
+        assert_eq!(rrule2.frequency, crate::Frequency::Yearly);
+        assert_eq!(rrule2.by_month, Some(6));
 
         // 3. FREQ=MONTHLY without BYDAY/BYMONTHDAY and negative BYMONTHDAY=-1
         let ics_content = "BEGIN:VCALENDAR\r\n\
@@ -739,5 +737,34 @@ END:VCALENDAR";
             ev1.dt_start,
             crate::DateOrDateTime::WholeDay(chrono::NaiveDate::from_ymd_opt(2023, 5, 10).unwrap())
         );
+    }
+
+    #[test]
+    fn test_improvement2_composable_rrule_multi_ordinal_byday_and_interval_validation() {
+        // INTERVAL=0 must be rejected at parse time
+        assert!(
+            "FREQ=WEEKLY;INTERVAL=0;BYDAY=MO"
+                .parse::<crate::RRule>()
+                .is_err()
+        );
+
+        // Multi-ordinal BYDAY=1MO,3MO in a monthly rule
+        // Jan 2023 Mondays: Jan 2 (1st), Jan 9 (2nd), Jan 16 (3rd), Jan 23 (4th), Jan 30 (5th)
+        // Feb 2023 Mondays: Feb 6 (1st), Feb 13 (2nd), Feb 20 (3rd), Feb 27 (4th)
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230102\r\n\
+SUMMARY:1st and 3rd Monday\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=1MO,3MO;COUNT=4\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occ: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occ.len(), 4);
+        assert_eq!((occ[0].start.month(), occ[0].start.day()), (1, 2));
+        assert_eq!((occ[1].start.month(), occ[1].start.day()), (1, 16));
+        assert_eq!((occ[2].start.month(), occ[2].start.day()), (2, 6));
+        assert_eq!((occ[3].start.month(), occ[3].start.day()), (2, 20));
     }
 }
