@@ -325,3 +325,23 @@ fn test_issue15_intersects_start_after_end_always_errors() {
         Err(DateIntersectError::StartDateAfterEndDate)
     ));
 }
+
+#[test]
+fn test_ord_eq_hash_consistency() {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let utc_instant = Utc.with_ymd_and_hms(2023, 1, 1, 8, 0, 0).unwrap();
+    let a = DateOrDateTime::date_time(utc_instant);
+    let b = DateOrDateTime::date_time_with_tz(utc_instant, chrono_tz::Europe::Rome);
+
+    assert_eq!(a.cmp(&b), Ordering::Equal);
+    assert_eq!(a, b);
+
+    let hash_of = |val: DateOrDateTime| {
+        let mut h = DefaultHasher::new();
+        val.hash(&mut h);
+        h.finish()
+    };
+    assert_eq!(hash_of(a), hash_of(b));
+}

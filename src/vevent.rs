@@ -38,15 +38,21 @@ pub struct OccurrenceResult {
 }
 
 impl VEvent {
+    #[must_use]
     pub fn first_occurrence(&self) -> DateOrDateTime {
         self.dt_start
+    }
+
+    #[must_use]
+    pub fn iter(&self) -> VEventIterator<'_> {
+        VEventIterator::new(self)
     }
 
     pub fn next_occurrence_since(
         &self,
         dt: DateOrDateTime,
     ) -> Result<Option<OccurrenceResult>, DateIntersectError> {
-        for occurrence in self.into_iter() {
+        for occurrence in self.iter() {
             let event_overlap = {
                 // handle the special case of start and end dates being WholeDay. We consider the
                 // final date the previous day when DTEND > DTSTART (since DTEND is exclusive for DATE).
@@ -93,7 +99,7 @@ impl VEvent {
         }
 
         let mut results = Vec::new();
-        for occurrence in self.into_iter() {
+        for occurrence in self.iter() {
             let effective_end =
                 if let (DateOrDateTime::WholeDay(wd_start), DateOrDateTime::WholeDay(wd_end)) =
                     (occurrence.start, occurrence.end)
@@ -136,17 +142,17 @@ impl FromStr for VEvent {
     }
 }
 
-impl TryFrom<Block> for VEvent {
+impl TryFrom<Block<'_>> for VEvent {
     type Error = VEventParseError;
 
-    fn try_from(block: Block) -> Result<Self, Self::Error> {
+    fn try_from(block: Block<'_>) -> Result<Self, Self::Error> {
         Self::try_from_block_with_timezones(block, &[])
     }
 }
 
 impl VEvent {
     pub fn try_from_block_with_timezones(
-        block: Block,
+        block: Block<'_>,
         timezones: &[crate::vtimezone::VTimezone],
     ) -> Result<Self, VEventParseError> {
         if block.name != "VEVENT" {
@@ -171,107 +177,89 @@ impl VEvent {
         let mut organizer = None;
         let mut google_conference_url = None;
 
-        for line in block.inner_lines.iter() {
+        for line in &block.inner_lines {
+            let line = line.as_ref();
             let prop =
                 ContentLine::parse(line).ok_or_else(|| VEventParseError::missing_colon(line))?;
 
-            match prop.name.to_ascii_uppercase().as_str() {
-                "UID" => {
-                    uid = Some(unescape_ical_text(prop.value));
-                }
-                "RECURRENCE-ID" => {
-                    recurrence_id = Some(DateOrDateTime::from_params_and_value_with_timezones(
-                        &prop.params,
-                        prop.value,
-                        timezones,
-                    )?);
-                }
-                "LAST-MODIFIED" => {
-                    dt_last_modified = Some(DateOrDateTime::from_params_and_value_with_timezones(
-                        &prop.params,
-                        prop.value,
-                        timezones,
-                    )?);
-                }
-                "DTSTART" => {
-                    dt_start = Some(DateOrDateTime::from_params_and_value_with_timezones(
-                        &prop.params,
-                        prop.value,
-                        timezones,
-                    )?);
-                }
-                "DTEND" => {
-                    dt_end = Some(DateOrDateTime::from_params_and_value_with_timezones(
-                        &prop.params,
-                        prop.value,
-                        timezones,
-                    )?);
-                }
-                "DURATION" => {
-                    duration = Some(parse_ical_duration(prop.value).ok_or_else(|| {
-                        VEventParseError::InvalidDuration {
-                            duration: prop.value.to_owned(),
-                        }
-                    })?);
-                }
-                "CREATED" => {
-                    dt_created = Some(DateOrDateTime::from_params_and_value_with_timezones(
-                        &prop.params,
-                        prop.value,
-                        timezones,
-                    )?);
-                }
-                "DTSTAMP" => {
-                    dt_stamp = Some(DateOrDateTime::from_params_and_value_with_timezones(
-                        &prop.params,
-                        prop.value,
-                        timezones,
-                    )?);
-                }
-                "SUMMARY" => {
-                    summary = Some(unescape_ical_text(prop.value));
-                }
-                "DESCRIPTION" => {
-                    description = Some(unescape_ical_text(prop.value));
-                }
-                "SEQUENCE" => {
-                    sequence = Some(
-                        prop.value
-                            .parse::<u32>()
-                            .map_err(|e| VEventParseError::sequence_parse_int_error(line, e))?,
-                    );
-                }
-                "RRULE" => {
-                    rrule = Some(prop.value.parse::<RRule>()?);
-                }
-                "STATUS" => {
-                    status = Some(unescape_ical_text(prop.value));
-                }
-                "X-GOOGLE-CONFERENCE" => {
-                    google_conference_url = Some(prop.value.to_string());
-                }
-                "ORGANIZER" => {
-                    organizer = Some(prop.raw_after_semicolon.unwrap_or(prop.value).to_string());
-                }
-                "RDATE" => {
-                    for val in prop.value.split(',').filter(|s| !s.is_empty()) {
-                        rdates.push(DateOrDateTime::from_params_and_value_with_timezones(
-                            &prop.params,
-                            val,
-                            timezones,
-                        )?);
+            if prop.name.eq_ignore_ascii_case("UID") {
+                uid = Some(unescape_ical_text(prop.value));
+            } else if prop.name.eq_ignore_ascii_case("RECURRENCE-ID") {
+                recurrence_id = Some(DateOrDateTime::from_params_and_value_with_timezones(
+                    &prop.params,
+                    prop.value,
+                    timezones,
+                )?);
+            } else if prop.name.eq_ignore_ascii_case("LAST-MODIFIED") {
+                dt_last_modified = Some(DateOrDateTime::from_params_and_value_with_timezones(
+                    &prop.params,
+                    prop.value,
+                    timezones,
+                )?);
+            } else if prop.name.eq_ignore_ascii_case("DTSTART") {
+                dt_start = Some(DateOrDateTime::from_params_and_value_with_timezones(
+                    &prop.params,
+                    prop.value,
+                    timezones,
+                )?);
+            } else if prop.name.eq_ignore_ascii_case("DTEND") {
+                dt_end = Some(DateOrDateTime::from_params_and_value_with_timezones(
+                    &prop.params,
+                    prop.value,
+                    timezones,
+                )?);
+            } else if prop.name.eq_ignore_ascii_case("DURATION") {
+                duration = Some(parse_ical_duration(prop.value).ok_or_else(|| {
+                    VEventParseError::InvalidDuration {
+                        duration: prop.value.to_owned(),
                     }
+                })?);
+            } else if prop.name.eq_ignore_ascii_case("CREATED") {
+                dt_created = Some(DateOrDateTime::from_params_and_value_with_timezones(
+                    &prop.params,
+                    prop.value,
+                    timezones,
+                )?);
+            } else if prop.name.eq_ignore_ascii_case("DTSTAMP") {
+                dt_stamp = Some(DateOrDateTime::from_params_and_value_with_timezones(
+                    &prop.params,
+                    prop.value,
+                    timezones,
+                )?);
+            } else if prop.name.eq_ignore_ascii_case("SUMMARY") {
+                summary = Some(unescape_ical_text(prop.value));
+            } else if prop.name.eq_ignore_ascii_case("DESCRIPTION") {
+                description = Some(unescape_ical_text(prop.value));
+            } else if prop.name.eq_ignore_ascii_case("SEQUENCE") {
+                sequence = Some(
+                    prop.value
+                        .parse::<u32>()
+                        .map_err(|e| VEventParseError::sequence_parse_int_error(line, e))?,
+                );
+            } else if prop.name.eq_ignore_ascii_case("RRULE") {
+                rrule = Some(prop.value.parse::<RRule>()?);
+            } else if prop.name.eq_ignore_ascii_case("STATUS") {
+                status = Some(unescape_ical_text(prop.value));
+            } else if prop.name.eq_ignore_ascii_case("X-GOOGLE-CONFERENCE") {
+                google_conference_url = Some(prop.value.to_string());
+            } else if prop.name.eq_ignore_ascii_case("ORGANIZER") {
+                organizer = Some(prop.raw_after_semicolon.unwrap_or(prop.value).to_string());
+            } else if prop.name.eq_ignore_ascii_case("RDATE") {
+                for val in prop.value.split(',').filter(|s| !s.is_empty()) {
+                    rdates.push(DateOrDateTime::from_params_and_value_with_timezones(
+                        &prop.params,
+                        val,
+                        timezones,
+                    )?);
                 }
-                "EXDATE" => {
-                    for val in prop.value.split(',').filter(|s| !s.is_empty()) {
-                        exdates.push(DateOrDateTime::from_params_and_value_with_timezones(
-                            &prop.params,
-                            val,
-                            timezones,
-                        )?);
-                    }
+            } else if prop.name.eq_ignore_ascii_case("EXDATE") {
+                for val in prop.value.split(',').filter(|s| !s.is_empty()) {
+                    exdates.push(DateOrDateTime::from_params_and_value_with_timezones(
+                        &prop.params,
+                        val,
+                        timezones,
+                    )?);
                 }
-                _ => {} // ignore
             }
         }
 
@@ -320,10 +308,6 @@ impl<'a> IntoIterator for &'a VEvent {
     fn into_iter(self) -> Self::IntoIter {
         VEventIterator::new(self)
     }
-}
-
-pub(crate) fn string_to_date_or_datetime(s: &str) -> Result<DateOrDateTime, chrono::ParseError> {
-    DateOrDateTime::parse_value_str(s)
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use chrono::{Datelike, Duration, NaiveDate, TimeZone, Timelike, Utc};
-use std::ops::Range;
+use std::{cmp::Ordering, ops::Range};
 
 use crate::{VEvent, date_or_date_time::DateOrDateTime, frequency::Frequency, rrule::RRule};
 
@@ -178,13 +178,13 @@ impl<'a> VEventIterator<'a> {
         Self::apply_by_set_pos(all, &rrule.by_set_pos)
     }
 
-    fn get_next_occurrence_according_to_rule(
-        &mut self,
+    pub(crate) fn next_rrule_occurrence(
+        dt_start: DateOrDateTime,
         last_occurrence: DateOrDateTime,
         rrule: &RRule,
     ) -> Option<DateOrDateTime> {
         let last_occurrence = Self::to_wall_clock(last_occurrence);
-        let dt_start_wall = Self::to_wall_clock(self.event.dt_start);
+        let dt_start_wall = Self::to_wall_clock(dt_start);
         let interval = rrule.interval.max(1);
 
         let wall_next = match rrule.frequency {
@@ -304,11 +304,21 @@ impl<'a> VEventIterator<'a> {
 
         let next_occurrence = Self::from_wall_clock(wall_next);
         if !rrule.is_expired(next_occurrence) {
-            self.last_occurrence = Some(next_occurrence);
-            self.last_occurrence
+            Some(next_occurrence)
         } else {
             None
         }
+    }
+
+    fn get_next_occurrence_according_to_rule(
+        &mut self,
+        last_occurrence: DateOrDateTime,
+        rrule: &RRule,
+    ) -> Option<DateOrDateTime> {
+        let next_occurrence =
+            Self::next_rrule_occurrence(self.event.dt_start, last_occurrence, rrule)?;
+        self.last_occurrence = Some(next_occurrence);
+        self.last_occurrence
     }
 
     fn get_next_occurrence_according_to_rule_and_iterations(&mut self) -> Option<DateOrDateTime> {
@@ -378,7 +388,7 @@ impl<'a> VEventIterator<'a> {
     }
 }
 
-impl<'a> Iterator for VEventIterator<'a> {
+impl Iterator for VEventIterator<'_> {
     type Item = Range<DateOrDateTime>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -391,17 +401,17 @@ impl<'a> Iterator for VEventIterator<'a> {
         let rdate_candidate = self.next_valid_rdate();
 
         let next_start = match (self.peeked_rrule, rdate_candidate) {
-            (Some(rrule_dt), Some(rdate_dt)) => {
-                if rrule_dt < rdate_dt {
-                    self.peeked_rrule.take()
-                } else if rdate_dt < rrule_dt {
+            (Some(rrule_dt), Some(rdate_dt)) => match rrule_dt.cmp(&rdate_dt) {
+                Ordering::Less => self.peeked_rrule.take(),
+                Ordering::Greater => {
                     self.rdate_idx += 1;
                     Some(rdate_dt)
-                } else {
+                }
+                Ordering::Equal => {
                     self.rdate_idx += 1;
                     self.peeked_rrule.take()
                 }
-            }
+            },
             (Some(_), None) => self.peeked_rrule.take(),
             (None, Some(rdate_dt)) => {
                 self.rdate_idx += 1;

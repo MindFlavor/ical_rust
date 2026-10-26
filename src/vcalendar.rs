@@ -70,10 +70,10 @@ impl FromStr for VCalendar {
     }
 }
 
-impl TryFrom<Block> for VCalendar {
+impl TryFrom<Block<'_>> for VCalendar {
     type Error = VCalendarParseError;
 
-    fn try_from(block: Block) -> Result<Self, Self::Error> {
+    fn try_from(block: Block<'_>) -> Result<Self, Self::Error> {
         if block.name != "VCALENDAR" {
             return Err(VCalendarParseError::UnsupportedTagError { tag: block.name });
         }
@@ -85,12 +85,14 @@ impl TryFrom<Block> for VCalendar {
 
         for line in &block.inner_lines {
             if let Some(prop) = ContentLine::parse(line) {
-                match prop.name.to_ascii_uppercase().as_str() {
-                    "VERSION" => version = Some(prop.value.to_owned()),
-                    "PRODID" => prod_id = Some(unescape_ical_text(prop.value)),
-                    "CALSCALE" => calscale = Some(prop.value.to_owned()),
-                    "METHOD" => method = Some(prop.value.to_owned()),
-                    _ => {}
+                if prop.name.eq_ignore_ascii_case("VERSION") {
+                    version = Some(prop.value.to_owned());
+                } else if prop.name.eq_ignore_ascii_case("PRODID") {
+                    prod_id = Some(unescape_ical_text(prop.value));
+                } else if prop.name.eq_ignore_ascii_case("CALSCALE") {
+                    calscale = Some(prop.value.to_owned());
+                } else if prop.name.eq_ignore_ascii_case("METHOD") {
+                    method = Some(prop.value.to_owned());
                 }
             }
         }

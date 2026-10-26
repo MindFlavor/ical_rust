@@ -8,20 +8,22 @@ pub struct ContentLine<'a> {
     pub raw_after_semicolon: Option<&'a str>,
 }
 
-impl<'a> ContentLine<'a> {
-    pub fn parse(line: &'a str) -> Option<Self> {
-        let mut in_quotes = false;
-        let mut colon_idx = None;
-        for (idx, b) in line.bytes().enumerate() {
-            if b == b'"' {
-                in_quotes = !in_quotes;
-            } else if b == b':' && !in_quotes {
-                colon_idx = Some(idx);
-                break;
-            }
+pub(crate) fn find_unquoted_colon(s: &str) -> Option<usize> {
+    let mut in_quotes = false;
+    for (idx, b) in s.bytes().enumerate() {
+        if b == b'"' {
+            in_quotes = !in_quotes;
+        } else if b == b':' && !in_quotes {
+            return Some(idx);
         }
+    }
+    None
+}
 
-        let colon_idx = colon_idx?;
+impl<'a> ContentLine<'a> {
+    #[must_use]
+    pub fn parse(line: &'a str) -> Option<Self> {
+        let colon_idx = find_unquoted_colon(line)?;
         let name_and_params = &line[..colon_idx];
         let value = &line[colon_idx + 1..];
 
@@ -100,13 +102,17 @@ pub(crate) fn split_outside_quotes(s: &str, delimiter: u8) -> Vec<&str> {
     result
 }
 
+#[must_use]
 pub fn unescape_ical_text(s: &str) -> String {
+    if !s.contains('\\') {
+        return s.to_owned();
+    }
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some('n') | Some('N') => out.push('\n'),
+                Some('n' | 'N') => out.push('\n'),
                 Some('\\') => out.push('\\'),
                 Some(';') => out.push(';'),
                 Some(',') => out.push(','),

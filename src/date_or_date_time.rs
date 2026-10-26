@@ -1,6 +1,6 @@
 use crate::by_day::WeekdayRule;
 use crate::errors::{DateIntersectError, SubstitutionError, TzIdDateTimeParseError};
-use crate::property::split_outside_quotes;
+use crate::property::{find_unquoted_colon, split_outside_quotes};
 use chrono::{
     DateTime, Datelike, Duration, FixedOffset, Local, LocalResult, NaiveDate, NaiveDateTime,
     TimeZone, Timelike, Utc, Weekday,
@@ -8,11 +8,12 @@ use chrono::{
 use chrono_tz::Tz;
 use std::{
     cmp::Ordering,
+    hash::{Hash, Hasher},
     ops::{Add, Sub},
     str::FromStr,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub enum DateOrDateTime {
     WholeDay(NaiveDate),
     DateTime { utc: DateTime<Utc>, tz: Option<Tz> },
@@ -61,18 +62,7 @@ impl TryFrom<&str> for DateOrDateTime {
     type Error = TzIdDateTimeParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
-        let mut in_quotes = false;
-        let mut colon_idx = None;
-        for (idx, b) in line.bytes().enumerate() {
-            if b == b'"' {
-                in_quotes = !in_quotes;
-            } else if b == b':' && !in_quotes {
-                colon_idx = Some(idx);
-                break;
-            }
-        }
-
-        if let Some(colon_idx) = colon_idx {
+        if let Some(colon_idx) = find_unquoted_colon(line) {
             let params_str = &line[..colon_idx];
             let value = &line[colon_idx + 1..];
             let mut params = Vec::new();
@@ -163,28 +153,33 @@ impl DateOrDateTime {
             Err(TzIdDateTimeParseError::MissingTZIDToken)
         }
     }
+    #[must_use]
     pub fn whole_day(date: NaiveDate) -> Self {
         Self::WholeDay(date)
     }
 
+    #[must_use]
     pub fn date_time(utc: DateTime<Utc>) -> Self {
         Self::DateTime { utc, tz: None }
     }
 
+    #[must_use]
     pub fn date_time_with_tz(utc: DateTime<Utc>, tz: Tz) -> Self {
         Self::DateTime { utc, tz: Some(tz) }
     }
 
-    pub fn timezone(&self) -> Option<Tz> {
+    #[must_use]
+    pub fn timezone(self) -> Option<Tz> {
         match self {
             Self::WholeDay(_) => None,
-            Self::DateTime { tz, .. } => *tz,
+            Self::DateTime { tz, .. } => tz,
         }
     }
 
-    pub fn date_naive(&self) -> NaiveDate {
+    #[must_use]
+    pub fn date_naive(self) -> NaiveDate {
         match self {
-            Self::WholeDay(d) => *d,
+            Self::WholeDay(d) => d,
             Self::DateTime { utc, .. } => utc.date_naive(),
         }
     }
@@ -245,11 +240,13 @@ impl DateOrDateTime {
         })
     }
 
+    #[must_use]
     pub fn next_by_day(self, by_day: &[WeekdayRule]) -> Self {
         let weekdays: Vec<Weekday> = by_day.iter().map(|r| r.weekday).collect();
         self.next_weekdays(&weekdays)
     }
 
+    #[must_use]
     pub fn matching_days_in_month(
         self,
         year: i32,
@@ -295,10 +292,12 @@ impl DateOrDateTime {
         result
     }
 
+    #[must_use]
     pub fn next_weekday(self, weekday: Weekday) -> Self {
         self.next_weekdays(&[weekday])
     }
 
+    #[must_use]
     pub fn next_weekdays(self, weekdays: &[Weekday]) -> Self {
         let mut ret = self + Duration::days(1);
 
@@ -312,6 +311,7 @@ impl DateOrDateTime {
         ret
     }
 
+    #[must_use]
     pub fn move_by_delta(self, rule: &WeekdayRule) -> DateOrDateTime {
         match rule.offset {
             Some(0) => self,
@@ -324,10 +324,12 @@ impl DateOrDateTime {
         }
     }
 
+    #[must_use]
     pub fn equals_date_time(self, date_time: DateTime<Utc>) -> bool {
         self.as_datetime() == date_time
     }
 
+    #[must_use]
     pub fn inc_month(self, increment: u32) -> Self {
         let total_months = (self.month() - 1) + increment;
         let final_month = (total_months % 12) + 1;
@@ -358,7 +360,8 @@ impl DateOrDateTime {
         }
     }
 
-    pub fn inc_year(&self, increment: u32) -> DateOrDateTime {
+    #[must_use]
+    pub fn inc_year(self, increment: u32) -> DateOrDateTime {
         let mut day = self.day();
         let year = self.year() + increment as i32;
         let month = self.month();
@@ -369,7 +372,7 @@ impl DateOrDateTime {
             day -= 1;
         };
 
-        match *self {
+        match self {
             DateOrDateTime::WholeDay(_) => Self::WholeDay(date),
             DateOrDateTime::DateTime { utc, tz } => Self::DateTime {
                 utc: date
@@ -381,33 +384,39 @@ impl DateOrDateTime {
         }
     }
 
-    pub fn year(&self) -> i32 {
+    #[must_use]
+    pub fn year(self) -> i32 {
         self.date_naive().year()
     }
 
-    pub fn month(&self) -> u32 {
+    #[must_use]
+    pub fn month(self) -> u32 {
         self.date_naive().month()
     }
 
-    pub fn day(&self) -> u32 {
+    #[must_use]
+    pub fn day(self) -> u32 {
         self.date_naive().day()
     }
 
-    pub fn hour(&self) -> u32 {
+    #[must_use]
+    pub fn hour(self) -> u32 {
         match self {
             DateOrDateTime::WholeDay(_) => 0,
             DateOrDateTime::DateTime { utc, .. } => utc.hour(),
         }
     }
 
-    pub fn minute(&self) -> u32 {
+    #[must_use]
+    pub fn minute(self) -> u32 {
         match self {
             DateOrDateTime::WholeDay(_) => 0,
             DateOrDateTime::DateTime { utc, .. } => utc.minute(),
         }
     }
 
-    pub fn second(&self) -> u32 {
+    #[must_use]
+    pub fn second(self) -> u32 {
         match self {
             DateOrDateTime::WholeDay(_) => 0,
             DateOrDateTime::DateTime { utc, .. } => utc.second(),
@@ -440,15 +449,29 @@ impl DateOrDateTime {
         }
     }
 
-    pub fn succ_day(&self) -> DateOrDateTime {
-        *self + Duration::days(1)
+    #[must_use]
+    pub fn succ_day(self) -> DateOrDateTime {
+        self + Duration::days(1)
     }
 
-    pub fn as_datetime(&self) -> DateTime<Utc> {
+    #[must_use]
+    pub fn as_datetime(self) -> DateTime<Utc> {
         match self {
             DateOrDateTime::WholeDay(day) => day.and_hms_opt(0, 0, 0).unwrap().and_utc(),
-            DateOrDateTime::DateTime { utc, .. } => *utc,
+            DateOrDateTime::DateTime { utc, .. } => utc,
         }
+    }
+}
+
+impl PartialEq for DateOrDateTime {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_datetime() == other.as_datetime()
+    }
+}
+
+impl Hash for DateOrDateTime {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.as_datetime().hash(state);
     }
 }
 

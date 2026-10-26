@@ -3,7 +3,7 @@ use crate::{
     date_or_date_time::DateOrDateTime,
     errors::RRuleParseError,
     frequency::Frequency,
-    string_to_date_or_datetime,
+    vevent_iterator::VEventIterator,
 };
 use std::{fmt, str::FromStr};
 
@@ -21,6 +21,7 @@ pub struct RRule {
 }
 
 impl RRule {
+    #[must_use]
     pub fn is_out_of_count(&self, count: u32) -> bool {
         log::trace!(
             "is_out_of_count(self == {:?}, count == {}) called",
@@ -32,10 +33,50 @@ impl RRule {
             .unwrap_or(false)
     }
 
+    #[must_use]
     pub fn is_expired(&self, dt: DateOrDateTime) -> bool {
         log::debug!("is_expired(self == {:?}, dt == {:?}) called", self, dt);
         self.until.map(|until| dt > until).unwrap_or(false)
     }
+
+    pub fn occurrences_from(
+        &self,
+        dt_start: DateOrDateTime,
+    ) -> impl Iterator<Item = DateOrDateTime> + '_ {
+        let mut last_occurrence: Option<DateOrDateTime> = None;
+        let mut count: u32 = 0;
+        std::iter::from_fn(move || {
+            if self.is_out_of_count(count) {
+                return None;
+            }
+            let next = match last_occurrence {
+                None => {
+                    if self.is_expired(dt_start) {
+                        return None;
+                    }
+                    Some(dt_start)
+                }
+                Some(last) => VEventIterator::next_rrule_occurrence(dt_start, last, self),
+            }?;
+            last_occurrence = Some(next);
+            count += 1;
+            Some(next)
+        })
+    }
+}
+
+fn write_csv<T: fmt::Display>(
+    f: &mut fmt::Formatter<'_>,
+    prefix: &str,
+    items: &[T],
+) -> fmt::Result {
+    if let Some((first, rest)) = items.split_first() {
+        write!(f, "{prefix}{first}")?;
+        for item in rest {
+            write!(f, ",{item}")?;
+        }
+    }
+    Ok(())
 }
 
 impl fmt::Display for RRule {
@@ -55,42 +96,10 @@ impl fmt::Display for RRule {
                 }
             }
         }
-        if !self.by_month.is_empty() {
-            let months = self
-                .by_month
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYMONTH={months}")?;
-        }
-        if !self.by_month_day.is_empty() {
-            let month_days = self
-                .by_month_day
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYMONTHDAY={month_days}")?;
-        }
-        if !self.by_day.is_empty() {
-            let days = self
-                .by_day
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYDAY={days}")?;
-        }
-        if !self.by_set_pos.is_empty() {
-            let pos = self
-                .by_set_pos
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYSETPOS={pos}")?;
-        }
+        write_csv(f, ";BYMONTH=", &self.by_month)?;
+        write_csv(f, ";BYMONTHDAY=", &self.by_month_day)?;
+        write_csv(f, ";BYDAY=", &self.by_day)?;
+        write_csv(f, ";BYSETPOS=", &self.by_set_pos)?;
         if let Some(wkst) = self.wkst {
             write!(f, ";WKST={}", weekday_to_ical_str(wkst))?;
         }
@@ -132,7 +141,7 @@ impl FromStr for RRule {
         }
 
         let until: Option<DateOrDateTime> = find_rrule_token(&tokens, "UNTIL=")
-            .map(string_to_date_or_datetime)
+            .map(DateOrDateTime::parse_value_str)
             .transpose()?;
 
         let count: Option<u32> = find_rrule_token(&tokens, "COUNT=")
