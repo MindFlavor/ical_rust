@@ -204,21 +204,20 @@ impl<'a> VEventIterator<'a> {
             Frequency::Weekly => {
                 if !rrule.by_day.is_empty() {
                     let interval_i64 = interval as i64;
+                    let wkst = rrule.wkst.unwrap_or(chrono::Weekday::Mon);
+                    let days_since_wkst = |wd: chrono::Weekday| -> i64 {
+                        ((wd.num_days_from_monday() + 7 - wkst.num_days_from_monday()) % 7) as i64
+                    };
+                    let dt_start_week_start = dt_start_wall.date_naive()
+                        - Duration::days(days_since_wkst(dt_start_wall.date_naive().weekday()));
                     let mut next_occurrence = last_occurrence.next_by_day(&rrule.by_day);
 
                     loop {
-                        let dt_start_monday = dt_start_wall.date_naive()
-                            - Duration::days(
-                                dt_start_wall.date_naive().weekday().num_days_from_monday() as i64,
-                            );
-                        let next_monday = next_occurrence.date_naive()
-                            - Duration::days(
-                                next_occurrence
-                                    .date_naive()
-                                    .weekday()
-                                    .num_days_from_monday() as i64,
-                            );
-                        let diff_days = (next_monday - dt_start_monday).num_days();
+                        let next_week_start = next_occurrence.date_naive()
+                            - Duration::days(days_since_wkst(
+                                next_occurrence.date_naive().weekday(),
+                            ));
+                        let diff_days = (next_week_start - dt_start_week_start).num_days();
                         let diff_weeks = diff_days / 7;
 
                         if diff_weeks % interval_i64 == 0 {

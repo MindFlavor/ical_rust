@@ -964,4 +964,36 @@ END:VCALENDAR";
         assert_eq!(all_occs[2].1.start.day(), 5);
         assert_eq!(all_occs[2].0.summary, "Moved Daily Sync");
     }
+
+    #[test]
+    fn test_rfc3_rrule_count_until_exclusivity_until_display_and_wkst() {
+        use crate::RRule;
+        // 1. COUNT and UNTIL are mutually exclusive per RFC 5545 §3.3.10
+        assert!(
+            "FREQ=DAILY;COUNT=5;UNTIL=20230110T000000Z"
+                .parse::<RRule>()
+                .is_err()
+        );
+
+        // 2. RRule Display preserves UNTIL and WKST
+        let rrule_until: RRule = "FREQ=DAILY;UNTIL=20230110;WKST=SU".parse().unwrap();
+        let formatted = rrule_until.to_string();
+        assert!(formatted.contains("UNTIL=20230110"), "got: {formatted}");
+        assert!(formatted.contains("WKST=SU"), "got: {formatted}");
+
+        // 3. WKST=SU changes week boundaries for INTERVAL > 1 in WEEKLY recurrence
+        // Saturday 2023-01-07:
+        // - Under WKST=MO (default), Sat Jan 7 and Sun Jan 8 are in the same week (Jan 2..Jan 8).
+        // - Under WKST=SU, Sat Jan 7 is the end of week 1 (Jan 1..Jan 7), Sun Jan 8 is start of week 2 (skipped by INTERVAL=2!),
+        //   and week 3 (Jan 15..Jan 21) has Sun Jan 15 and Sat Jan 21.
+        let ev_wkst_su: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230107\r\n\
+SUMMARY:Biweekly Weekend\r\n\
+RRULE:FREQ=WEEKLY;INTERVAL=2;WKST=SU;BYDAY=SA,SU;COUNT=4\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let days: Vec<u32> = ev_wkst_su.into_iter().map(|o| o.start.day()).collect();
+        assert_eq!(days, vec![7, 15, 21, 29]);
+    }
 }

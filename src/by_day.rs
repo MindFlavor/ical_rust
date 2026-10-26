@@ -33,16 +33,19 @@ impl fmt::Display for WeekdayRule {
         if let Some(offset) = self.offset {
             write!(f, "{offset}")?;
         }
-        let wd = match self.weekday {
-            Weekday::Sun => "SU",
-            Weekday::Mon => "MO",
-            Weekday::Tue => "TU",
-            Weekday::Wed => "WE",
-            Weekday::Thu => "TH",
-            Weekday::Fri => "FR",
-            Weekday::Sat => "SA",
-        };
-        write!(f, "{wd}")
+        write!(f, "{}", weekday_to_ical_str(self.weekday))
+    }
+}
+
+pub(crate) fn weekday_to_ical_str(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Sun => "SU",
+        Weekday::Mon => "MO",
+        Weekday::Tue => "TU",
+        Weekday::Wed => "WE",
+        Weekday::Thu => "TH",
+        Weekday::Fri => "FR",
+        Weekday::Sat => "SA",
     }
 }
 
@@ -76,7 +79,7 @@ pub fn parse_by_day(s: &str) -> Result<Vec<WeekdayRule>, ByDayParseError> {
     tokens.into_iter().map(WeekdayRule::from_str).collect()
 }
 
-fn to_chrono_weekday(s: &str) -> Result<Weekday, ByDayParseError> {
+pub(crate) fn to_chrono_weekday(s: &str) -> Result<Weekday, ByDayParseError> {
     match s {
         "SU" => Ok(Weekday::Sun),
         "MO" => Ok(Weekday::Mon),

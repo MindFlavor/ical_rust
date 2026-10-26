@@ -1,5 +1,5 @@
 use crate::{
-    by_day::{WeekdayRule, parse_by_day},
+    by_day::{WeekdayRule, parse_by_day, to_chrono_weekday, weekday_to_ical_str},
     date_or_date_time::DateOrDateTime,
     errors::RRuleParseError,
     frequency::Frequency,
@@ -16,6 +16,7 @@ pub struct RRule {
     pub by_month: Option<u8>,
     pub by_month_day: Option<i8>,
     pub by_day: Vec<WeekdayRule>,
+    pub wkst: Option<chrono::Weekday>,
 }
 
 impl RRule {
@@ -45,6 +46,14 @@ impl fmt::Display for RRule {
         if let Some(count) = self.count {
             write!(f, ";COUNT={count}")?;
         }
+        if let Some(until) = self.until {
+            match until {
+                DateOrDateTime::WholeDay(d) => write!(f, ";UNTIL={}", d.format("%Y%m%d"))?,
+                DateOrDateTime::DateTime { utc, .. } => {
+                    write!(f, ";UNTIL={}", utc.format("%Y%m%dT%H%M%SZ"))?
+                }
+            }
+        }
         if let Some(by_month) = self.by_month {
             write!(f, ";BYMONTH={by_month}")?;
         }
@@ -59,6 +68,9 @@ impl fmt::Display for RRule {
                 .collect::<Vec<_>>()
                 .join(",");
             write!(f, ";BYDAY={days}")?;
+        }
+        if let Some(wkst) = self.wkst {
+            write!(f, ";WKST={}", weekday_to_ical_str(wkst))?;
         }
         Ok(())
     }
@@ -100,6 +112,10 @@ impl FromStr for RRule {
             .map(|item| item.parse())
             .transpose()?;
 
+        if count.is_some() && until.is_some() {
+            return Err(RRuleParseError::BothCountAndUntilSpecified);
+        }
+
         let by_month: Option<u8> = tokens
             .iter()
             .find_map(|item| item.strip_prefix("BYMONTH="))
@@ -135,6 +151,16 @@ impl FromStr for RRule {
             })?
             .unwrap_or_default();
 
+        let wkst: Option<chrono::Weekday> = tokens
+            .iter()
+            .find_map(|item| item.strip_prefix("WKST="))
+            .map(to_chrono_weekday)
+            .transpose()
+            .map_err(|error| RRuleParseError::ByDayParserError {
+                error,
+                line: s.to_owned(),
+            })?;
+
         Ok(Self {
             frequency,
             interval,
@@ -143,6 +169,7 @@ impl FromStr for RRule {
             by_month,
             by_month_day,
             by_day,
+            wkst,
         })
     }
 }
