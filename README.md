@@ -24,7 +24,7 @@ Add `ical_rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ical_rust = "0.7.1"
+ical_rust = "0.7.2"
 ```
 
 ---

@@ -1,7 +1,6 @@
 use crate::VEvent;
 use crate::block::Block;
 use crate::errors::VCalendarParseError;
-use crate::ical_line_parser::ICalLineParser;
 use crate::vtimezone::VTimezone;
 use either::*;
 
@@ -15,11 +14,7 @@ impl TryFrom<&str> for VCalendar {
     type Error = VCalendarParseError;
 
     fn try_from(whole_text: &str) -> Result<Self, Self::Error> {
-        let normalized = whole_text.replace("\r\n", "\n");
-        let contents = normalized.split('\n').collect::<Vec<_>>();
-        let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
-        let block: Block = ical_lines.try_into()?;
-
+        let block = Block::try_from(whole_text)?;
         block.try_into()
     }
 }
