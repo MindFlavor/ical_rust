@@ -1,6 +1,6 @@
 [package]
 name = "ical_rust"
-version = "0.8.5"
+version = "0.8.6"
 
 edition = "2024"
 description = "A lightweight, efficient, and robust iCalendar (ics) parser and recurrence expander library"
@@ -14,7 +14,7 @@ categories = ["parser-implementations", "date-and-time"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = "0.4.44"
-chrono-tz = "0.10"
-log = "0.4.30"
-thiserror = "2.0"
+chrono = "0.4.45"
+chrono-tz = "0.10.4"
+log = "0.4.34"
+thiserror = "2.0.21"

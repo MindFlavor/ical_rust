@@ -320,10 +320,10 @@ impl<'a> VEventIterator<'a> {
                 self.get_next_occurrence_according_to_rule(last_occurrence, rrule)
             })
         } else {
-            if let Some(rrule) = &self.event.rrule {
-                if rrule.is_out_of_count(self.count) || rrule.is_expired(self.event.dt_start) {
-                    return None;
-                }
+            if let Some(rrule) = &self.event.rrule
+                && (rrule.is_out_of_count(self.count) || rrule.is_expired(self.event.dt_start))
+            {
+                return None;
             }
             self.last_occurrence = Some(self.event.dt_start);
             Some(self.event.dt_start)
