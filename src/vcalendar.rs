@@ -457,4 +457,40 @@ END:VCALENDAR";
         // 2023-03-26 09:00 CEST (UTC+2) == 07:00 UTC
         assert_eq!(occurrences[1].start.hour(), 7);
     }
+
+    #[test]
+    fn test_issue8_monthly_by_day_same_month_and_day1() {
+        // Jan 2023: Jan 30 is Monday. Feb 2023: Feb 1 is Wednesday.
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230127\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY:Monthly Mon/Wed/Fri\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=MO,WE,FR;COUNT=3\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occurrences: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occurrences.len(), 3);
+
+        // 1st: Fri Jan 27, 2023
+        assert_eq!(
+            (occurrences[0].start.month(), occurrences[0].start.day()),
+            (1, 27)
+        );
+        // 2nd: Mon Jan 30, 2023 (same month!)
+        assert_eq!(
+            (occurrences[1].start.month(), occurrences[1].start.day()),
+            (1, 30)
+        );
+        // 3rd: Wed Feb 1, 2023 (day 1 of next month!)
+        assert_eq!(
+            (occurrences[2].start.month(), occurrences[2].start.day()),
+            (2, 1)
+        );
+    }
 }

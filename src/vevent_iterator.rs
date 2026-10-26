@@ -130,27 +130,34 @@ impl<'a> VEventIterator<'a> {
             }
 
             RRule::MonthlyByDay(rrule) => {
-                let next_month = last_occurrence
-                    .substitute(
-                        Some(if last_occurrence.month() == 12 {
-                            last_occurrence.year() + 1
+                let interval = rrule.common_options().interval.unwrap_or(1);
+                match &rrule.day {
+                    ByDay::Simple(weekdays) => {
+                        let candidate = last_occurrence.next_by_day(&rrule.day);
+                        if candidate.year() == last_occurrence.year()
+                            && candidate.month() == last_occurrence.month()
+                        {
+                            candidate
                         } else {
-                            last_occurrence.year()
-                        }),
-                        Some(if last_occurrence.month() == 12 {
-                            1
-                        } else {
-                            last_occurrence.month() + 1
-                        }),
-                        Some(1),
-                        None,
-                        None,
-                        None,
-                    )
-                    .unwrap();
-
-                // Calculate 1SU or -1SU... done in DateOrDatetime
-                next_month.next_by_day(&rrule.day)
+                            let target_month_start = last_occurrence
+                                .substitute(None, None, Some(1), None, None, None)
+                                .unwrap()
+                                .inc_month(interval);
+                            if weekdays.contains(&target_month_start.date().weekday()) {
+                                target_month_start
+                            } else {
+                                target_month_start.next_by_day(&rrule.day)
+                            }
+                        }
+                    }
+                    ByDay::Delta(_) => {
+                        let next_month = last_occurrence
+                            .substitute(None, None, Some(1), None, None, None)
+                            .unwrap()
+                            .inc_month(interval);
+                        next_month.next_by_day(&rrule.day)
+                    }
+                }
             }
 
             RRule::Weekly(_rrule) => last_occurrence + Duration::days(7),
@@ -201,7 +208,9 @@ impl<'a> VEventIterator<'a> {
                 }
                 let mut next_occurrence = Some(last_occurrence);
                 let mut iterations = match rrule {
-                    RRule::WeeklyByDay(_) | RRule::YearlyByMonthByDay(_) => 1,
+                    RRule::WeeklyByDay(_)
+                    | RRule::YearlyByMonthByDay(_)
+                    | RRule::MonthlyByDay(_) => 1,
                     _ => rrule.common_options().interval.unwrap_or(1),
                 };
                 while iterations > 0 && next_occurrence.is_some() {
