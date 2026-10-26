@@ -555,4 +555,32 @@ END:VCALENDAR";
         assert_eq!(occurrences[0].start.day(), 1);
         assert_eq!(occurrences[1].start.day(), 3);
     }
+
+    #[test]
+    fn test_issue11_vevent_property_parameters_and_plain_tags() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20230101\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY;LANGUAGE=en-US:Team Sync; Planning\r\n\
+DESCRIPTION;LANGUAGE=en-US:Notes for the meeting\r\n\
+ORGANIZER:mailto:boss@example.com\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=DAILY;COUNT=2\r\n\
+EXDATE:20230102\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let event = &cal.events[0];
+        assert_eq!(event.summary, "Team Sync; Planning");
+        assert_eq!(event.description.as_deref(), Some("Notes for the meeting"));
+        assert_eq!(event.organizer.as_deref(), Some("mailto:boss@example.com"));
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 2);
+        assert_eq!(occurrences[0].start.day(), 1);
+        assert_eq!(occurrences[1].start.day(), 3);
+    }
 }

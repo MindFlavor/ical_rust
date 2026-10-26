@@ -104,11 +104,23 @@ impl TryFrom<Block> for VEvent {
 
         for line in block.inner_lines.iter() {
             let idx_colon = line.find(':').unwrap_or(line.len());
-            let tag = &line[0..idx_colon];
+            let name_and_params = &line[0..idx_colon];
             let extra = if idx_colon + 1 < line.len() {
                 Some(&line[idx_colon + 1..])
             } else {
                 None
+            };
+
+            let (tag, after_semicolon) = match name_and_params.find(';') {
+                Some(idx_semi) => {
+                    let after = if idx_semi + 1 < line.len() {
+                        Some(&line[idx_semi + 1..])
+                    } else {
+                        None
+                    };
+                    (&name_and_params[0..idx_semi], after)
+                }
+                None => (name_and_params, None),
             };
 
             match tag {
@@ -119,15 +131,26 @@ impl TryFrom<Block> for VEvent {
                         })?)?);
                 }
                 "DTSTART" => {
-                    dt_start = Some(DateOrDateTime::DateTime(string_to_datetime(
-                        extra.ok_or_else(|| VEventParseError::missing_colon(block.clone()))?,
-                    )?));
+                    if let Some(semi_extra) = after_semicolon {
+                        let parsed = semi_extra.parse::<TzIdDateTime>()?;
+                        dt_start_tz = Some(parsed.time_zone);
+                        dt_start = Some(parsed.date_time);
+                    } else {
+                        dt_start =
+                            Some(string_to_date_or_datetime(extra.ok_or_else(|| {
+                                VEventParseError::missing_colon(block.clone())
+                            })?)?);
+                    }
                 }
                 "DTEND" => {
-                    dt_end =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    if let Some(semi_extra) = after_semicolon {
+                        dt_end = Some(to_tziddate_or_date(semi_extra)?);
+                    } else {
+                        dt_end =
+                            Some(string_to_date_or_datetime(extra.ok_or_else(|| {
+                                VEventParseError::missing_colon(block.clone())
+                            })?)?);
+                    }
                 }
                 "CREATED" => {
                     dt_created =
@@ -171,56 +194,42 @@ impl TryFrom<Block> for VEvent {
                 "X-GOOGLE-CONFERENCE" => {
                     google_conference_url = extra.map(|e| e.to_string());
                 }
-                _ => {} // ignore
-            }
-
-            let idx_semicolon = line.find(';').unwrap_or(line.len());
-            let tag = &line[0..idx_semicolon];
-            let extra = if idx_semicolon + 1 < line.len() {
-                Some(&line[idx_semicolon + 1..])
-            } else {
-                None
-            };
-
-            match tag {
                 "ORGANIZER" => {
-                    organizer = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .to_string(),
-                    );
-                }
-                "EXDATE" => {
-                    let extra =
-                        extra.ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?;
-                    log::trace!("parsing EXDATE ==> {}", extra);
-
-                    if let Some(colon_idx) = extra.find(':') {
-                        let prefix = &extra[0..=colon_idx];
-                        let values_str = &extra[colon_idx + 1..];
-                        for val in values_str.split(',').filter(|s| !s.is_empty()) {
-                            let reconstructed = format!("{}{}", prefix, val);
-                            exdates.push(TzIdDateTime::try_from(reconstructed.as_str())?);
-                        }
+                    if let Some(semi_extra) = after_semicolon {
+                        organizer = Some(semi_extra.to_string());
                     } else {
-                        exdates.push(TzIdDateTime::try_from(extra)?);
+                        organizer = Some(
+                            extra
+                                .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
+                                .to_string(),
+                        );
                     }
                 }
-                "DTSTART" => {
-                    let parsed = extra
-                        .map(|s| s.parse::<TzIdDateTime>())
-                        .transpose()?
-                        .ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?;
-                    dt_start_tz = Some(parsed.time_zone);
-                    dt_start = Some(parsed.date_time);
-                }
-                "DTEND" => {
-                    dt_end = Some(
-                        extra
-                            .map(to_tziddate_or_date)
-                            .transpose()?
-                            .ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?,
-                    );
+                "EXDATE" => {
+                    if let Some(semi_extra) = after_semicolon {
+                        log::trace!("parsing EXDATE ==> {}", semi_extra);
+
+                        if let Some(colon_idx) = semi_extra.find(':') {
+                            let prefix = &semi_extra[0..=colon_idx];
+                            let values_str = &semi_extra[colon_idx + 1..];
+                            for val in values_str.split(',').filter(|s| !s.is_empty()) {
+                                let reconstructed = format!("{}{}", prefix, val);
+                                exdates.push(TzIdDateTime::try_from(reconstructed.as_str())?);
+                            }
+                        } else {
+                            exdates.push(TzIdDateTime::try_from(semi_extra)?);
+                        }
+                    } else {
+                        let vals =
+                            extra.ok_or_else(|| VEventParseError::missing_colon(block.clone()))?;
+                        for val in vals.split(',').filter(|s| !s.is_empty()) {
+                            let dt = string_to_date_or_datetime(val)?;
+                            exdates.push(TzIdDateTime {
+                                time_zone: chrono_tz::UTC,
+                                date_time: dt,
+                            });
+                        }
+                    }
                 }
                 _ => {} // ignore
             }
