@@ -293,12 +293,11 @@ fn string_to_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
         DateTime::<FixedOffset>::parse_from_str(s, "%Y%m%dT%H%M%S%#z")?.with_timezone(&Utc)
     } else {
         let a = NaiveDateTime::parse_from_str(s, "%Y%m%dT%H%M%S")?;
-        let tz_offset = Local::now().offset().to_owned();
-        tz_offset
+        Local
             .from_local_datetime(&a)
-            .unwrap()
-            .with_timezone(&Utc)
-        //Utc.from_utc_datetime(&a)
+            .earliest()
+            .map(|d| d.with_timezone(&Utc))
+            .unwrap_or_else(|| Utc.from_utc_datetime(&a))
     })
 }
 
@@ -311,4 +310,41 @@ fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
 
 fn to_tziddate_or_date(s: &str) -> Result<DateOrDateTime, TzIdDateTimeParseError> {
     Ok(s.parse::<TzIdDateTime>()?.date_time)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::string_to_datetime;
+    use chrono::{Local, NaiveDateTime, TimeZone, Utc};
+
+    #[test]
+    fn test_issue12_floating_local_datetime_uses_event_offset() {
+        unsafe {
+            std::env::set_var("TZ", "Europe/Rome");
+        }
+        let winter_naive =
+            NaiveDateTime::parse_from_str("20230115T120000", "%Y%m%dT%H%M%S").unwrap();
+        let summer_naive =
+            NaiveDateTime::parse_from_str("20230715T120000", "%Y%m%dT%H%M%S").unwrap();
+
+        let expected_winter = Local
+            .from_local_datetime(&winter_naive)
+            .earliest()
+            .unwrap()
+            .with_timezone(&Utc);
+        let expected_summer = Local
+            .from_local_datetime(&summer_naive)
+            .earliest()
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(
+            string_to_datetime("20230115T120000").unwrap(),
+            expected_winter
+        );
+        assert_eq!(
+            string_to_datetime("20230715T120000").unwrap(),
+            expected_summer
+        );
+    }
 }
