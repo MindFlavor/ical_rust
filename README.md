@@ -24,7 +24,7 @@ Add `ical_rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ical_rust = "0.6.18"
+ical_rust = "0.7.0"
 ```
 
 ---
@@ -88,8 +88,8 @@ You can query individual events using:
 
 ### `DateOrDateTime`
 A custom enum handling both single full-day bounds and precise timezone-associated date-times:
-- `DateOrDateTime::WholeDay(DateTime<Utc>)`
-- `DateOrDateTime::DateTime(DateTime<Utc>)`
+- `DateOrDateTime::WholeDay(NaiveDate)`
+- `DateOrDateTime::DateTime { utc: DateTime<Utc>, tz: Option<Tz> }`
 
 Provides support for calculations, incrementing components safely (e.g. leap years, variable-length months), and testing for intersection overlapping (`intersects`).
 

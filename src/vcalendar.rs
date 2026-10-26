@@ -709,4 +709,35 @@ END:VCALENDAR";
         assert_eq!(cal.events.len(), 1);
         assert_eq!(cal.events[0].summary, "Actual Event");
     }
+
+    #[test]
+    fn test_improvement1_unified_date_or_date_time_preserves_tz_and_naive_date() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20230101T090000\r\n\
+DTEND;TZID=America/New_York:20230101T050000\r\n\
+SUMMARY:Cross-Timezone Event\r\n\
+EXDATE;TZID=Europe/Rome:20230102T090000\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230510\r\n\
+SUMMARY:All Day Event\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 2);
+
+        let ev0 = &cal.events[0];
+        assert_eq!(ev0.dt_start.timezone(), Some(chrono_tz::Europe::Rome));
+        assert_eq!(ev0.dt_end.timezone(), Some(chrono_tz::America::New_York));
+        assert_eq!(ev0.exdates[0].timezone(), Some(chrono_tz::Europe::Rome));
+
+        let ev1 = &cal.events[1];
+        assert_eq!(ev1.dt_start.timezone(), None);
+        assert_eq!(
+            ev1.dt_start,
+            crate::DateOrDateTime::WholeDay(chrono::NaiveDate::from_ymd_opt(2023, 5, 10).unwrap())
+        );
+    }
 }

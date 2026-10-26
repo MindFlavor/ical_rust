@@ -1,5 +1,5 @@
-use chrono::{Datelike, LocalResult, TimeZone, Timelike, Utc};
-use std::{cmp::Ordering, ops::Range};
+use chrono::{Datelike, Duration, NaiveDate, TimeZone, Timelike, Utc};
+use std::ops::Range;
 
 use crate::{
     VEvent,
@@ -7,7 +7,6 @@ use crate::{
     date_or_date_time::DateOrDateTime,
     rrule::{Options, RRule},
 };
-use chrono::Duration;
 
 #[derive(Debug, Clone)]
 pub struct VEventIterator<'a> {
@@ -25,26 +24,35 @@ impl<'a> VEventIterator<'a> {
         }
     }
 
-    fn to_wall_clock(&self, dt: DateOrDateTime) -> DateOrDateTime {
-        match (dt, self.event.dt_start_tz) {
-            (DateOrDateTime::DateTime(utc_dt), Some(tz)) => {
-                let local = utc_dt.with_timezone(&tz).naive_local();
-                DateOrDateTime::DateTime(Utc.from_utc_datetime(&local))
+    fn to_wall_clock(dt: DateOrDateTime) -> DateOrDateTime {
+        match dt {
+            DateOrDateTime::DateTime { utc, tz: Some(tz) } => {
+                let local = utc.with_timezone(&tz).naive_local();
+                DateOrDateTime::DateTime {
+                    utc: Utc.from_utc_datetime(&local),
+                    tz: Some(tz),
+                }
             }
             _ => dt,
         }
     }
 
-    fn from_wall_clock(&self, dt: DateOrDateTime) -> DateOrDateTime {
-        match (dt, self.event.dt_start_tz) {
-            (DateOrDateTime::DateTime(wall_dt), Some(tz)) => {
+    fn from_wall_clock(dt: DateOrDateTime) -> DateOrDateTime {
+        match dt {
+            DateOrDateTime::DateTime {
+                utc: wall_dt,
+                tz: Some(tz),
+            } => {
                 let naive = wall_dt.naive_utc();
                 let utc_dt = tz
                     .from_local_datetime(&naive)
                     .earliest()
                     .map(|d| d.with_timezone(&Utc))
                     .unwrap_or(wall_dt);
-                DateOrDateTime::DateTime(utc_dt)
+                DateOrDateTime::DateTime {
+                    utc: utc_dt,
+                    tz: Some(tz),
+                }
             }
             _ => dt,
         }
@@ -58,11 +66,7 @@ impl<'a> VEventIterator<'a> {
         default_day: u32,
     ) -> DateOrDateTime {
         let mut max_day = 31;
-        while matches!(
-            Utc.with_ymd_and_hms(year, month, max_day, 0, 0, 0),
-            LocalResult::None
-        ) && max_day > 1
-        {
+        while NaiveDate::from_ymd_opt(year, month, max_day).is_none() && max_day > 1 {
             max_day -= 1;
         }
         let d = if month_day == 0 {
@@ -72,20 +76,16 @@ impl<'a> VEventIterator<'a> {
         } else {
             (max_day as i32 + 1 + month_day as i32).max(1) as u32
         };
-        let target_date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0).unwrap();
+        let target_date = NaiveDate::from_ymd_opt(year, month, d).unwrap();
         match base {
             DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(target_date),
-            DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
-                Utc.with_ymd_and_hms(
-                    target_date.year(),
-                    target_date.month(),
-                    target_date.day(),
-                    dt.hour(),
-                    dt.minute(),
-                    dt.second(),
-                )
-                .unwrap(),
-            ),
+            DateOrDateTime::DateTime { utc, tz } => DateOrDateTime::DateTime {
+                utc: target_date
+                    .and_hms_opt(utc.hour(), utc.minute(), utc.second())
+                    .unwrap()
+                    .and_utc(),
+                tz,
+            },
         }
     }
 
@@ -94,8 +94,8 @@ impl<'a> VEventIterator<'a> {
         last_occurrence: DateOrDateTime,
         rrule: &RRule,
     ) -> Option<DateOrDateTime> {
-        let last_occurrence = self.to_wall_clock(last_occurrence);
-        let dt_start_wall = self.to_wall_clock(self.event.dt_start);
+        let last_occurrence = Self::to_wall_clock(last_occurrence);
+        let dt_start_wall = Self::to_wall_clock(self.event.dt_start);
         let wall_next = match rrule {
             RRule::Yearly(_rrule) => Self::with_year_month_clamped_day(
                 last_occurrence,
@@ -129,7 +129,7 @@ impl<'a> VEventIterator<'a> {
                     let mut next_occurrence = target_month_start;
                     match &rrule.day {
                         ByDay::Simple(weekdays) => {
-                            if !weekdays.contains(&target_month_start.date().weekday()) {
+                            if !weekdays.contains(&target_month_start.date_naive().weekday()) {
                                 next_occurrence = target_month_start.next_by_day(&rrule.day);
                             }
                         }
@@ -180,7 +180,7 @@ impl<'a> VEventIterator<'a> {
                                 .substitute(None, None, Some(1), None, None, None)
                                 .unwrap()
                                 .inc_month(interval);
-                            if weekdays.contains(&target_month_start.date().weekday()) {
+                            if weekdays.contains(&target_month_start.date_naive().weekday()) {
                                 target_month_start
                             } else {
                                 target_month_start.next_by_day(&rrule.day)
@@ -202,16 +202,18 @@ impl<'a> VEventIterator<'a> {
             RRule::WeeklyByDay(rrule) => {
                 let interval = rrule.common_options().interval.unwrap_or(1) as i64;
                 let mut next_occurrence = last_occurrence.next_by_day(&rrule.day);
-                let dt_start_wall = self.to_wall_clock(self.event.dt_start);
 
                 loop {
-                    let dt_start_monday = dt_start_wall.date()
+                    let dt_start_monday = dt_start_wall.date_naive()
                         - Duration::days(
-                            dt_start_wall.date().weekday().num_days_from_monday() as i64
+                            dt_start_wall.date_naive().weekday().num_days_from_monday() as i64,
                         );
-                    let next_monday = next_occurrence.date()
+                    let next_monday = next_occurrence.date_naive()
                         - Duration::days(
-                            next_occurrence.date().weekday().num_days_from_monday() as i64
+                            next_occurrence
+                                .date_naive()
+                                .weekday()
+                                .num_days_from_monday() as i64,
                         );
                     let diff_days = (next_monday - dt_start_monday).num_days();
                     let diff_weeks = diff_days / 7;
@@ -228,7 +230,7 @@ impl<'a> VEventIterator<'a> {
             RRule::Daily(_rrule) => last_occurrence + Duration::days(1),
         };
 
-        let next_occurrence = self.from_wall_clock(wall_next);
+        let next_occurrence = Self::from_wall_clock(wall_next);
         if !rrule.is_expired(next_occurrence) {
             self.last_occurrence = Some(next_occurrence);
             self.last_occurrence
@@ -284,16 +286,12 @@ impl<'a> Iterator for VEventIterator<'a> {
             if let Some(next_non_empty) = next {
                 log::trace!("next_non_empty == {:?}", next_non_empty);
 
-                if !self.event.exdates.iter().any(|exdate| {
-                    // we check only for date comparison and not time because of the weird handling
-                    // of timezones in EXDATE. This should be enough since the repetition can be at
-                    // most per day.
-                    next_non_empty
-                        .date()
-                        .date_naive()
-                        .cmp(&exdate.date_time.date().date_naive())
-                        == Ordering::Equal
-                }) {
+                if !self
+                    .event
+                    .exdates
+                    .iter()
+                    .any(|exdate| next_non_empty.date_naive() == exdate.date_naive())
+                {
                     // keep count
                     self.count += 1;
 

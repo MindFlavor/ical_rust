@@ -1,16 +1,15 @@
-use chrono::{DateTime, Datelike, Local, TimeZone, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use ical_rust::*;
 
 fn main() {
-    let e: DateOrDateTime =
-        DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2022, 2, 10, 0, 0, 0).unwrap());
+    let e: DateOrDateTime = DateOrDateTime::WholeDay(NaiveDate::from_ymd_opt(2022, 2, 10).unwrap());
 
-    let dt_start = DateOrDateTime::DateTime(
+    let dt_start = DateOrDateTime::date_time(
         DateTime::parse_from_str("20220201T103000Z", "%Y%m%dT%H%M%S%#z")
             .unwrap()
             .with_timezone(&Utc),
     );
-    let dt_end = DateOrDateTime::DateTime(
+    let dt_end = DateOrDateTime::date_time(
         DateTime::parse_from_str("20220210T103000Z", "%Y%m%dT%H%M%S%#z")
             .unwrap()
             .with_timezone(&Utc),
@@ -134,7 +133,7 @@ fn main() {
     //item.next_occurrence_since(dt).unwrap();
 
     // find occurrences tomorrow!
-    let dt = DateOrDateTime::DateTime(Utc::now());
+    let dt = DateOrDateTime::date_time(Utc::now());
     println!("\n\tdt == {dt:?}");
 
     for event in cal.events.iter() {
@@ -143,12 +142,7 @@ fn main() {
             match next_occurrence.event_overlap {
                 EventOverlap::StartsFuture | EventOverlap::FinishesPast => continue,
                 _ => {
-                    let a = match next_occurrence.occurrence.start {
-                        DateOrDateTime::DateTime(dt) => dt,
-                        DateOrDateTime::WholeDay(wd) => Utc
-                            .with_ymd_and_hms(wd.year(), wd.month(), wd.day(), 0, 0, 0)
-                            .unwrap(),
-                    };
+                    let a = next_occurrence.occurrence.start.as_datetime();
                     let local = a.with_timezone(&Local);
 
                     println!(
