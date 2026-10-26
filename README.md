@@ -24,7 +24,7 @@ Add `ical_rust` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ical_rust = "0.6.18"
+ical_rust = "0.7.5"
 ```
 
 ---
@@ -34,7 +34,7 @@ ical_rust = "0.6.18"
 Here is a simple example showing how to parse an iCalendar string, access an event, and expand its recurring occurrences:
 
 ```rust
-use ical_rust::{VCalendar, Options};
+use ical_rust::VCalendar;
 
 fn main() {
     // A sample ICS payload containing a recurring event
@@ -58,7 +58,7 @@ END:VCALENDAR";
     println!("Calendar Event Found: {}", event.summary);
 
     // 3. Iterate over the calculated occurrences
-    println!("\nExpanding Recurrence Rule ({}):", event.rrule.as_ref().unwrap().common_options().raw);
+    println!("\nExpanding Recurrence Rule ({}):", event.rrule.as_ref().unwrap());
     for (i, occurrence) in event.into_iter().enumerate() {
         println!("  Occurrence #{}:", i + 1);
         println!("    Start: {:?}", occurrence.start);
@@ -73,23 +73,26 @@ END:VCALENDAR";
 
 ### `VCalendar`
 The main entrance point and container for parsed iCalendar information. It manages parsed `VTimezone` collections and lists of `VEvent` records.
-- Implementations of `TryFrom<&str>` allow direct instantiation from file-read contents.
+- Implementations of `TryFrom<&str>` and `FromStr` allow direct instantiation from file-read contents.
+- **`occurrences_between(start, end)`**: Returns all `(event, occurrence)` pairs across the calendar overlapping `[start, end]`, sorted chronologically.
+- **`next_occurrences_since(dt)`**: Returns the next active or upcoming occurrence for each event in the calendar, sorted chronologically.
 
 ### `VEvent`
 Represents an individual event block (`VEVENT`). Contains standard properties:
 - `dt_start` / `dt_end`: Event lifetime boundaries as `DateOrDateTime`.
-- `summary` / `description`: Metadata explaining the event.
-- `rrule`: Optional recurrence rules.
-- `exdates`: Optional list of excluded date-times.
+- `summary` / `description`: Metadata explaining the event (with RFC 5545 text unescaping).
+- `rrule`: Optional composable `RRule` recurrence rule.
+- `exdates`: Optional list of excluded `DateOrDateTime` values.
 
 You can query individual events using:
 - **`into_iter()`**: Returns a `VEventIterator` that generates each concrete recurrence instance of the event as a `Range<DateOrDateTime>`.
+- **`occurrences_between(start, end)`**: Collects all occurrences of the event overlapping `[start, end]`.
 - **`next_occurrence_since(dt)`**: Finds the next occurrence of the event that is active or starts after a specified time.
 
 ### `DateOrDateTime`
 A custom enum handling both single full-day bounds and precise timezone-associated date-times:
-- `DateOrDateTime::WholeDay(DateTime<Utc>)`
-- `DateOrDateTime::DateTime(DateTime<Utc>)`
+- `DateOrDateTime::WholeDay(NaiveDate)`
+- `DateOrDateTime::DateTime { utc: DateTime<Utc>, tz: Option<Tz> }`
 
 Provides support for calculations, incrementing components safely (e.g. leap years, variable-length months), and testing for intersection overlapping (`intersects`).
 

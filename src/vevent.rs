@@ -1,41 +1,36 @@
 use crate::{
-    TzIdDateTime,
     block::Block,
     date_or_date_time::{DateOrDateTime, EventOverlap},
-    errors::{DateIntersectError, TzIdDateTimeParseError, VEventParseError},
+    errors::{DateIntersectError, VEventParseError},
+    property::{ContentLine, unescape_ical_text},
     rrule::RRule,
     vevent_iterator::VEventIterator,
 };
-use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
+use chrono::Duration;
 use std::ops::Range;
+use std::str::FromStr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VEvent {
     pub dt_created: DateOrDateTime,
     pub dt_last_modified: DateOrDateTime,
     pub dt_start: DateOrDateTime,
-    pub dt_start_tz: Option<chrono_tz::Tz>,
     pub dt_end: DateOrDateTime,
     pub dt_stamp: DateOrDateTime,
     pub summary: String,
     pub description: Option<String>,
     pub rrule: Option<RRule>,
-    pub exdates: Vec<TzIdDateTime>,
+    pub exdates: Vec<DateOrDateTime>,
     pub sequence: u32,
     pub status: Option<String>,
     pub organizer: Option<String>,
     pub google_conference_url: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OccurrenceResult {
     pub occurrence: Range<DateOrDateTime>,
     pub event_overlap: EventOverlap,
-}
-
-fn midnight(d: DateTime<Utc>) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
-        .unwrap()
 }
 
 impl VEvent {
@@ -47,18 +42,21 @@ impl VEvent {
         &self,
         dt: DateOrDateTime,
     ) -> Result<Option<OccurrenceResult>, DateIntersectError> {
-        //println!("called next_occurrence_since({self:?}, {dt:?})");
-
         for occurrence in self.into_iter() {
             let event_overlap = {
                 // handle the special case of start and end dates being WholeDay. We consider the
-                // final date the last second of the previous end date.
+                // final date the previous day when DTEND > DTSTART (since DTEND is exclusive for DATE).
                 if let (DateOrDateTime::WholeDay(wd_start), DateOrDateTime::WholeDay(wd_end)) =
                     (occurrence.start, occurrence.end)
                 {
+                    let inclusive_end = if wd_end > wd_start {
+                        wd_end - Duration::days(1)
+                    } else {
+                        wd_end
+                    };
                     dt.intersects(
-                        DateOrDateTime::DateTime(midnight(wd_start)),
-                        DateOrDateTime::DateTime(midnight(wd_end) - chrono::Duration::seconds(1)),
+                        DateOrDateTime::WholeDay(wd_start),
+                        DateOrDateTime::WholeDay(inclusive_end),
                     )?
                 } else {
                     dt.intersects(occurrence.start, occurrence.end)?
@@ -76,10 +74,61 @@ impl VEvent {
                     }));
                 }
             }
-            // else carry on!
         }
 
         Ok(None)
+    }
+
+    pub fn occurrences_between(
+        &self,
+        start: DateOrDateTime,
+        end: DateOrDateTime,
+    ) -> Result<Vec<Range<DateOrDateTime>>, DateIntersectError> {
+        if start > end {
+            return Err(DateIntersectError::StartDateAfterEndDate);
+        }
+
+        let mut results = Vec::new();
+        for occurrence in self.into_iter() {
+            let effective_end =
+                if let (DateOrDateTime::WholeDay(wd_start), DateOrDateTime::WholeDay(wd_end)) =
+                    (occurrence.start, occurrence.end)
+                {
+                    if wd_end > wd_start {
+                        DateOrDateTime::WholeDay(wd_end - Duration::days(1))
+                    } else {
+                        occurrence.end
+                    }
+                } else {
+                    occurrence.end
+                };
+
+            if occurrence.start > end {
+                break;
+            }
+            if effective_end >= start {
+                results.push(occurrence);
+            }
+        }
+
+        Ok(results)
+    }
+}
+
+impl TryFrom<&str> for VEvent {
+    type Error = VEventParseError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let block = Block::try_from(s)?;
+        Self::try_from(block)
+    }
+}
+
+impl FromStr for VEvent {
+    type Err = VEventParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 
@@ -87,10 +136,13 @@ impl TryFrom<Block> for VEvent {
     type Error = VEventParseError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
+        if block.name != "VEVENT" {
+            return Err(VEventParseError::UnsupportedTag { tag: block.name });
+        }
+
         let mut dt_created = None;
         let mut dt_last_modified = None;
         let mut dt_start: Option<DateOrDateTime> = None;
-        let mut dt_start_tz: Option<chrono_tz::Tz> = None;
         let mut dt_end = None;
         let mut dt_stamp = None;
         let mut summary = None;
@@ -103,152 +155,85 @@ impl TryFrom<Block> for VEvent {
         let mut google_conference_url = None;
 
         for line in block.inner_lines.iter() {
-            let idx_colon = line.find(':').unwrap_or(line.len());
-            let name_and_params = &line[0..idx_colon];
-            let extra = if idx_colon + 1 < line.len() {
-                Some(&line[idx_colon + 1..])
-            } else {
-                None
-            };
+            let prop =
+                ContentLine::parse(line).ok_or_else(|| VEventParseError::missing_colon(line))?;
 
-            let (tag, after_semicolon) = match name_and_params.find(';') {
-                Some(idx_semi) => {
-                    let after = if idx_semi + 1 < line.len() {
-                        Some(&line[idx_semi + 1..])
-                    } else {
-                        None
-                    };
-                    (&name_and_params[0..idx_semi], after)
-                }
-                None => (name_and_params, None),
-            };
-
-            match tag {
+            match prop.name {
                 "LAST-MODIFIED" => {
-                    dt_last_modified =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    dt_last_modified = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "DTSTART" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        let parsed = semi_extra.parse::<TzIdDateTime>()?;
-                        dt_start_tz = Some(parsed.time_zone);
-                        dt_start = Some(parsed.date_time);
-                    } else {
-                        dt_start =
-                            Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                                VEventParseError::missing_colon(block.clone())
-                            })?)?);
-                    }
+                    dt_start = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "DTEND" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        dt_end = Some(to_tziddate_or_date(semi_extra)?);
-                    } else {
-                        dt_end =
-                            Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                                VEventParseError::missing_colon(block.clone())
-                            })?)?);
-                    }
+                    dt_end = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "CREATED" => {
-                    dt_created =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    dt_created = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "DTSTAMP" => {
-                    dt_stamp =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    dt_stamp = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "SUMMARY" => {
-                    summary = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .to_string(),
-                    );
+                    summary = Some(unescape_ical_text(prop.value));
                 }
-                "DESCRIPTION" => description = extra.map(|e| e.to_string()),
+                "DESCRIPTION" => {
+                    description = Some(unescape_ical_text(prop.value));
+                }
                 "SEQUENCE" => {
-                    sequence = extra.map(|e| e.parse::<u32>()).transpose().map_err(|e| {
-                        VEventParseError::sequence_parse_int_error(block.clone(), e)
-                    })?;
+                    sequence = Some(
+                        prop.value
+                            .parse::<u32>()
+                            .map_err(|e| VEventParseError::sequence_parse_int_error(line, e))?,
+                    );
                 }
                 "RRULE" => {
-                    rrule = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .parse::<RRule>()?,
-                    );
+                    rrule = Some(prop.value.parse::<RRule>()?);
                 }
                 "STATUS" => {
-                    status = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .to_string(),
-                    );
+                    status = Some(unescape_ical_text(prop.value));
                 }
                 "X-GOOGLE-CONFERENCE" => {
-                    google_conference_url = extra.map(|e| e.to_string());
+                    google_conference_url = Some(prop.value.to_string());
                 }
                 "ORGANIZER" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        organizer = Some(semi_extra.to_string());
-                    } else {
-                        organizer = Some(
-                            extra
-                                .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                                .to_string(),
-                        );
-                    }
+                    organizer = Some(prop.raw_after_semicolon.unwrap_or(prop.value).to_string());
                 }
                 "EXDATE" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        log::trace!("parsing EXDATE ==> {}", semi_extra);
-
-                        if let Some(colon_idx) = semi_extra.find(':') {
-                            let prefix = &semi_extra[0..=colon_idx];
-                            let values_str = &semi_extra[colon_idx + 1..];
-                            for val in values_str.split(',').filter(|s| !s.is_empty()) {
-                                let reconstructed = format!("{}{}", prefix, val);
-                                exdates.push(TzIdDateTime::try_from(reconstructed.as_str())?);
-                            }
-                        } else {
-                            exdates.push(TzIdDateTime::try_from(semi_extra)?);
-                        }
-                    } else {
-                        let vals =
-                            extra.ok_or_else(|| VEventParseError::missing_colon(block.clone()))?;
-                        for val in vals.split(',').filter(|s| !s.is_empty()) {
-                            let dt = string_to_date_or_datetime(val)?;
-                            exdates.push(TzIdDateTime {
-                                time_zone: chrono_tz::UTC,
-                                date_time: dt,
-                            });
-                        }
+                    for val in prop.value.split(',').filter(|s| !s.is_empty()) {
+                        exdates.push(DateOrDateTime::from_params_and_value(&prop.params, val)?);
                     }
                 }
                 _ => {} // ignore
             }
         }
 
-        let dt_start = dt_start
-            .ok_or_else(|| VEventParseError::missing_mandatory_field(block.clone(), "DTSTART"))?;
+        let dt_start =
+            dt_start.ok_or_else(|| VEventParseError::missing_mandatory_field("DTSTART"))?;
         let dt_stamp = dt_stamp.unwrap_or(dt_start);
 
         Ok(VEvent {
             dt_last_modified: dt_last_modified.unwrap_or(dt_stamp),
             dt_start,
-            dt_start_tz,
-            dt_end: dt_end.unwrap_or(dt_start), // if there is no DT_END tag, it means end is the same as start.
+            dt_end: dt_end.unwrap_or(dt_start),
             dt_created: dt_created.unwrap_or(dt_stamp),
             dt_stamp,
-            summary: summary.ok_or_else(|| {
-                VEventParseError::missing_mandatory_field(block.clone(), "SUMMARY")
-            })?,
+            summary: summary.ok_or_else(|| VEventParseError::missing_mandatory_field("SUMMARY"))?,
             description,
             rrule,
             exdates,
@@ -270,44 +255,12 @@ impl<'a> IntoIterator for &'a VEvent {
 }
 
 pub(crate) fn string_to_date_or_datetime(s: &str) -> Result<DateOrDateTime, chrono::ParseError> {
-    Ok(if s.len() == 8 {
-        let date = string_to_date(s)?;
-        DateOrDateTime::WholeDay(
-            Utc.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
-                .unwrap(),
-        )
-    } else {
-        DateOrDateTime::DateTime(string_to_datetime(s)?)
-    })
-}
-
-fn string_to_datetime(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
-    Ok(if s.ends_with('Z') {
-        DateTime::<FixedOffset>::parse_from_str(s, "%Y%m%dT%H%M%S%#z")?.with_timezone(&Utc)
-    } else {
-        let a = NaiveDateTime::parse_from_str(s, "%Y%m%dT%H%M%S")?;
-        Local
-            .from_local_datetime(&a)
-            .earliest()
-            .map(|d| d.with_timezone(&Utc))
-            .unwrap_or_else(|| Utc.from_utc_datetime(&a))
-    })
-}
-
-fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
-    Ok(Utc.from_utc_datetime(&NaiveDateTime::parse_from_str(
-        &format!("{s}T000000"),
-        "%Y%m%dT%H%M%S",
-    )?))
-}
-
-fn to_tziddate_or_date(s: &str) -> Result<DateOrDateTime, TzIdDateTimeParseError> {
-    Ok(s.parse::<TzIdDateTime>()?.date_time)
+    DateOrDateTime::parse_value_str(s)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::string_to_datetime;
+    use super::string_to_date_or_datetime;
     use chrono::{Local, NaiveDateTime, TimeZone, Utc};
 
     #[test]
@@ -332,11 +285,15 @@ mod tests {
             .with_timezone(&Utc);
 
         assert_eq!(
-            string_to_datetime("20230115T120000").unwrap(),
+            string_to_date_or_datetime("20230115T120000")
+                .unwrap()
+                .as_datetime(),
             expected_winter
         );
         assert_eq!(
-            string_to_datetime("20230715T120000").unwrap(),
+            string_to_date_or_datetime("20230715T120000")
+                .unwrap()
+                .as_datetime(),
             expected_summer
         );
     }

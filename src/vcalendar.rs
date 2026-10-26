@@ -1,26 +1,67 @@
 use crate::VEvent;
 use crate::block::Block;
-use crate::errors::VCalendarParseError;
-use crate::ical_line_parser::ICalLineParser;
+use crate::date_or_date_time::DateOrDateTime;
+use crate::errors::{DateIntersectError, VCalendarParseError};
+use crate::vevent::OccurrenceResult;
 use crate::vtimezone::VTimezone;
-use either::*;
+use std::ops::Range;
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VCalendar {
     pub timezones: Vec<VTimezone>,
     pub events: Vec<VEvent>,
+}
+
+impl VCalendar {
+    pub fn occurrences_between(
+        &self,
+        start: DateOrDateTime,
+        end: DateOrDateTime,
+    ) -> Result<Vec<(&VEvent, Range<DateOrDateTime>)>, DateIntersectError> {
+        if start > end {
+            return Err(DateIntersectError::StartDateAfterEndDate);
+        }
+
+        let mut results = Vec::new();
+        for event in &self.events {
+            for occ in event.occurrences_between(start, end)? {
+                results.push((event, occ));
+            }
+        }
+        results.sort_by(|a, b| a.1.start.cmp(&b.1.start));
+        Ok(results)
+    }
+
+    pub fn next_occurrences_since(
+        &self,
+        dt: DateOrDateTime,
+    ) -> Result<Vec<(&VEvent, OccurrenceResult)>, DateIntersectError> {
+        let mut results = Vec::new();
+        for event in &self.events {
+            if let Some(occ) = event.next_occurrence_since(dt)? {
+                results.push((event, occ));
+            }
+        }
+        results.sort_by(|a, b| a.1.occurrence.start.cmp(&b.1.occurrence.start));
+        Ok(results)
+    }
 }
 
 impl TryFrom<&str> for VCalendar {
     type Error = VCalendarParseError;
 
     fn try_from(whole_text: &str) -> Result<Self, Self::Error> {
-        let normalized = whole_text.replace("\r\n", "\n");
-        let contents = normalized.split('\n').collect::<Vec<_>>();
-        let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
-        let block: Block = ical_lines.try_into()?;
-
+        let block = Block::try_from(whole_text)?;
         block.try_into()
+    }
+}
+
+impl FromStr for VCalendar {
+    type Err = VCalendarParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 
@@ -32,31 +73,14 @@ impl TryFrom<Block> for VCalendar {
             return Err(VCalendarParseError::UnsupportedTagError { tag: block.name });
         }
 
-        let results = block
-            .inner_blocks
-            .into_iter()
-            .filter_map(|b| match b.name.as_ref() {
-                "VTIMEZONE" => Some(
-                    VTimezone::try_from(b)
-                        .map_err(VCalendarParseError::from)
-                        .map(Left),
-                ),
-                "VEVENT" => Some(
-                    VEvent::try_from(b)
-                        .map_err(VCalendarParseError::from)
-                        .map(Right),
-                ),
-                _ => None,
-            })
-            .collect::<Result<Vec<_>, VCalendarParseError>>()?;
-
         let mut timezones = Vec::new();
         let mut events = Vec::new();
 
-        for result in results {
-            match result {
-                Either::Left(timezone) => timezones.push(timezone),
-                Either::Right(event) => events.push(event),
+        for b in block.inner_blocks {
+            match b.name.as_str() {
+                "VTIMEZONE" => timezones.push(VTimezone::try_from(b)?),
+                "VEVENT" => events.push(VEvent::try_from(b)?),
+                _ => {}
             }
         }
 
@@ -594,14 +618,12 @@ END:VCALENDAR";
     fn test_issue13_rrule_flexible_token_order_and_monthly_defaults() {
         // 1. FREQ not first
         let rrule1: crate::rrule::RRule = "COUNT=3;FREQ=DAILY".parse().unwrap();
-        assert!(matches!(rrule1, crate::rrule::RRule::Daily(_)));
+        assert_eq!(rrule1.frequency, crate::Frequency::Daily);
 
         // 2. FREQ=YEARLY;BYMONTH=6 without BYDAY/BYMONTHDAY
         let rrule2: crate::rrule::RRule = "FREQ=YEARLY;BYMONTH=6;COUNT=2".parse().unwrap();
-        assert!(matches!(
-            rrule2,
-            crate::rrule::RRule::YearlyByMonthByMonthDay(_)
-        ));
+        assert_eq!(rrule2.frequency, crate::Frequency::Yearly);
+        assert_eq!(rrule2.by_month, Some(6));
 
         // 3. FREQ=MONTHLY without BYDAY/BYMONTHDAY and negative BYMONTHDAY=-1
         let ics_content = "BEGIN:VCALENDAR\r\n\
@@ -708,5 +730,140 @@ END:VCALENDAR";
         let cal = VCalendar::try_from(with_vtodo).unwrap();
         assert_eq!(cal.events.len(), 1);
         assert_eq!(cal.events[0].summary, "Actual Event");
+    }
+
+    #[test]
+    fn test_improvement1_unified_date_or_date_time_preserves_tz_and_naive_date() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20230101T090000\r\n\
+DTEND;TZID=America/New_York:20230101T050000\r\n\
+SUMMARY:Cross-Timezone Event\r\n\
+EXDATE;TZID=Europe/Rome:20230102T090000\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230510\r\n\
+SUMMARY:All Day Event\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 2);
+
+        let ev0 = &cal.events[0];
+        assert_eq!(ev0.dt_start.timezone(), Some(chrono_tz::Europe::Rome));
+        assert_eq!(ev0.dt_end.timezone(), Some(chrono_tz::America::New_York));
+        assert_eq!(ev0.exdates[0].timezone(), Some(chrono_tz::Europe::Rome));
+
+        let ev1 = &cal.events[1];
+        assert_eq!(ev1.dt_start.timezone(), None);
+        assert_eq!(
+            ev1.dt_start,
+            crate::DateOrDateTime::WholeDay(chrono::NaiveDate::from_ymd_opt(2023, 5, 10).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_improvement2_composable_rrule_multi_ordinal_byday_and_interval_validation() {
+        // INTERVAL=0 must be rejected at parse time
+        assert!(
+            "FREQ=WEEKLY;INTERVAL=0;BYDAY=MO"
+                .parse::<crate::RRule>()
+                .is_err()
+        );
+
+        // Multi-ordinal BYDAY=1MO,3MO in a monthly rule
+        // Jan 2023 Mondays: Jan 2 (1st), Jan 9 (2nd), Jan 16 (3rd), Jan 23 (4th), Jan 30 (5th)
+        // Feb 2023 Mondays: Feb 6 (1st), Feb 13 (2nd), Feb 20 (3rd), Feb 27 (4th)
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230102\r\n\
+SUMMARY:1st and 3rd Monday\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=1MO,3MO;COUNT=4\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occ: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occ.len(), 4);
+        assert_eq!((occ[0].start.month(), occ[0].start.day()), (1, 2));
+        assert_eq!((occ[1].start.month(), occ[1].start.day()), (1, 16));
+        assert_eq!((occ[2].start.month(), occ[2].start.day()), (2, 6));
+        assert_eq!((occ[3].start.month(), occ[3].start.day()), (2, 20));
+    }
+
+    #[test]
+    fn test_improvement4_content_line_multi_params_and_text_unescaping() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE-TIME;TZID=\"Europe/Rome\":20230101T090000\r\n\
+SUMMARY;LANGUAGE=en-US:Meeting\\, Planning\\; Phase 1\\nAgenda\r\n\
+DESCRIPTION:Line 1\\NLine 2\\\\End\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let ev = &cal.events[0];
+        assert_eq!(ev.dt_start.timezone(), Some(chrono_tz::Europe::Rome));
+        assert_eq!(ev.summary, "Meeting, Planning; Phase 1\nAgenda");
+        assert_eq!(ev.description.as_deref(), Some("Line 1\nLine 2\\End"));
+    }
+
+    #[test]
+    fn test_improvement5_calendar_query_api() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Daily Standup\r\n\
+RRULE:FREQ=DAILY\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230102\r\n\
+SUMMARY:One-Off Review\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let start = "20230102".parse::<DateOrDateTime>().unwrap();
+        let end = "20230104".parse::<DateOrDateTime>().unwrap();
+
+        let between = cal.occurrences_between(start, end).unwrap();
+        assert_eq!(between.len(), 4);
+        assert_eq!(between[0].1.start.day(), 2);
+        assert_eq!(between[1].1.start.day(), 2);
+        assert_eq!(between[2].1.start.day(), 3);
+        assert_eq!(between[3].1.start.day(), 4);
+
+        let next = cal.next_occurrences_since(start).unwrap();
+        assert_eq!(next.len(), 2);
+        assert_eq!(next[0].1.occurrence.start.day(), 2);
+        assert_eq!(next[1].1.occurrence.start.day(), 2);
+    }
+
+    #[test]
+    fn test_improvement6_from_str_eq_and_lightweight_errors() {
+        let ev_str = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Direct Event Parse\r\n\
+END:VEVENT";
+
+        let ev1: VEvent = ev_str.parse().unwrap();
+        let ev2 = VEvent::try_from(ev_str).unwrap();
+        assert_eq!(ev1, ev2);
+
+        let cal_str = format!("BEGIN:VCALENDAR\r\n{ev_str}\r\nEND:VCALENDAR");
+        let cal1: VCalendar = cal_str.parse().unwrap();
+        let cal2 = VCalendar::try_from(cal_str.as_str()).unwrap();
+        assert_eq!(cal1, cal2);
+
+        // Verify lightweight error equality and clone
+        let missing_summary = "BEGIN:VEVENT\r\nDTSTART:20230101\r\nEND:VEVENT";
+        let err = missing_summary.parse::<VEvent>().unwrap_err();
+        assert_eq!(
+            err.clone(),
+            crate::errors::VEventParseError::MissingMandatoryField {
+                field: "SUMMARY".to_string()
+            }
+        );
     }
 }
