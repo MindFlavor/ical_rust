@@ -28,19 +28,25 @@ impl TryFrom<Block> for VCalendar {
     type Error = VCalendarParseError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
+        if block.name != "VCALENDAR" {
+            return Err(VCalendarParseError::UnsupportedTagError { tag: block.name });
+        }
+
         let results = block
             .inner_blocks
             .into_iter()
-            .map(|b| match b.name.as_ref() {
-                "VTIMEZONE" => VTimezone::try_from(b)
-                    .map_err(VCalendarParseError::from)
-                    .map(Left),
-                "VEVENT" => VEvent::try_from(b)
-                    .map_err(VCalendarParseError::from)
-                    .map(Right),
-                _ => Err(VCalendarParseError::UnsupportedTagError {
-                    tag: b.name().to_owned(),
-                }),
+            .filter_map(|b| match b.name.as_ref() {
+                "VTIMEZONE" => Some(
+                    VTimezone::try_from(b)
+                        .map_err(VCalendarParseError::from)
+                        .map(Left),
+                ),
+                "VEVENT" => Some(
+                    VEvent::try_from(b)
+                        .map_err(VCalendarParseError::from)
+                        .map(Right),
+                ),
+                _ => None,
             })
             .collect::<Result<Vec<_>, VCalendarParseError>>()?;
 
@@ -680,5 +686,27 @@ END:VCALENDAR";
         assert_eq!(event.sequence, 0);
         assert_eq!(event.dt_created, event.dt_stamp);
         assert_eq!(event.dt_last_modified, event.dt_stamp);
+    }
+
+    #[test]
+    fn test_issue17_vcalendar_validates_root_tag_and_ignores_other_components() {
+        // Non-VCALENDAR root block must be rejected
+        let not_a_calendar =
+            "BEGIN:VEVENT\r\nDTSTART:20230101T090000Z\r\nSUMMARY:Test\r\nEND:VEVENT";
+        assert!(VCalendar::try_from(not_a_calendar).is_err());
+
+        // VCALENDAR containing VTODO alongside VEVENT should succeed and ignore VTODO
+        let with_vtodo = "BEGIN:VCALENDAR\r\n\
+BEGIN:VTODO\r\n\
+SUMMARY:Buy milk\r\n\
+END:VTODO\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20230101T090000Z\r\n\
+SUMMARY:Actual Event\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+        let cal = VCalendar::try_from(with_vtodo).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        assert_eq!(cal.events[0].summary, "Actual Event");
     }
 }
