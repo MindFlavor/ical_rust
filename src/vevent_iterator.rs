@@ -50,6 +50,35 @@ impl<'a> VEventIterator<'a> {
         }
     }
 
+    fn with_year_month_clamped_day(
+        base: DateOrDateTime,
+        year: i32,
+        month: u32,
+        target_day: u32,
+    ) -> DateOrDateTime {
+        let mut d = target_day;
+        let mut date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+        while matches!(date, LocalResult::None) && d > 1 {
+            d -= 1;
+            date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
+        }
+        let target_date = date.unwrap();
+        match base {
+            DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(target_date),
+            DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
+                Utc.with_ymd_and_hms(
+                    target_date.year(),
+                    target_date.month(),
+                    target_date.day(),
+                    dt.hour(),
+                    dt.minute(),
+                    dt.second(),
+                )
+                .unwrap(),
+            ),
+        }
+    }
+
     fn get_next_occurrence_according_to_rule(
         &mut self,
         last_occurrence: DateOrDateTime,
@@ -57,7 +86,15 @@ impl<'a> VEventIterator<'a> {
     ) -> Option<DateOrDateTime> {
         let last_occurrence = self.to_wall_clock(last_occurrence);
         let wall_next = match rrule {
-            RRule::Yearly(_rrule) => last_occurrence.inc_year(1),
+            RRule::Yearly(_rrule) => {
+                let dt_start_wall = self.to_wall_clock(self.event.dt_start);
+                Self::with_year_month_clamped_day(
+                    last_occurrence,
+                    last_occurrence.year() + 1,
+                    dt_start_wall.month(),
+                    dt_start_wall.day(),
+                )
+            }
 
             RRule::YearlyByMonthByDay(rrule) => {
                 let next_occurrence = last_occurrence.next_by_day(&rrule.day);
@@ -96,7 +133,12 @@ impl<'a> VEventIterator<'a> {
                 }
             }
 
-            RRule::YearlyByMonthByMonthDay(_rrule) => last_occurrence.inc_year(1),
+            RRule::YearlyByMonthByMonthDay(rrule) => Self::with_year_month_clamped_day(
+                last_occurrence,
+                last_occurrence.year() + 1,
+                rrule.month as u32,
+                rrule.month_day as u32,
+            ),
 
             RRule::MonthlyByMonthDay(rrule) => {
                 let mut year = last_occurrence.year();
@@ -105,28 +147,12 @@ impl<'a> VEventIterator<'a> {
                     month = 1;
                     year += 1;
                 }
-                let target_day = rrule.month_day as u32;
-                let mut d = target_day;
-                let mut date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
-                while matches!(date, LocalResult::None) && d > 1 {
-                    d -= 1;
-                    date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
-                }
-                let target_date = date.unwrap();
-                match last_occurrence {
-                    DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(target_date),
-                    DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
-                        Utc.with_ymd_and_hms(
-                            target_date.year(),
-                            target_date.month(),
-                            target_date.day(),
-                            dt.hour(),
-                            dt.minute(),
-                            dt.second(),
-                        )
-                        .unwrap(),
-                    ),
-                }
+                Self::with_year_month_clamped_day(
+                    last_occurrence,
+                    year,
+                    month,
+                    rrule.month_day as u32,
+                )
             }
 
             RRule::MonthlyByDay(rrule) => {

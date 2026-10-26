@@ -493,4 +493,42 @@ END:VCALENDAR";
             (2, 1)
         );
     }
+
+    #[test]
+    fn test_issue9_yearly_by_month_month_day_and_leap_year() {
+        // Leap day event: Feb 29, 2024 with YearlyByMonthByMonthDay
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20240229\r\n\
+LAST-MODIFIED:20240101T000000Z\r\n\
+CREATED:20240101T000000Z\r\n\
+DTSTAMP:20240101T000000Z\r\n\
+SUMMARY:Leap Day Event\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=29;COUNT=5\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occurrences: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occurrences.len(), 5);
+        // 2024 is leap year -> Feb 29
+        assert_eq!(
+            (
+                occurrences[0].start.year(),
+                occurrences[0].start.month(),
+                occurrences[0].start.day()
+            ),
+            (2024, 2, 29)
+        );
+        // 2028 is leap year -> should return to Feb 29, not drift to Feb 28!
+        assert_eq!(
+            (
+                occurrences[4].start.year(),
+                occurrences[4].start.month(),
+                occurrences[4].start.day()
+            ),
+            (2028, 2, 29)
+        );
+    }
 }
