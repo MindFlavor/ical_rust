@@ -1,6 +1,5 @@
 use crate::errors::BlockParseError;
 
-
 #[derive(Debug, Clone, Default)]
 pub struct Block {
     pub name: String,
@@ -26,7 +25,7 @@ impl<'a> TryFrom<&'a [String]> for Block {
         let mut depth = 1;
         let mut position = 0;
 
-        if let Some(name) = lines[position].strip_prefix("BEGIN:") {
+        if let Some(name) = lines.get(position).and_then(|l| l.strip_prefix("BEGIN:")) {
             let mut inner_block_start = None;
 
             position += 1;
@@ -69,5 +68,20 @@ impl<'a> TryFrom<&'a [String]> for Block {
         } else {
             Err(BlockParseError::BlockNotStartingWithBEGIN)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_issue1_empty_input_does_not_panic() {
+        let empty: &[String] = &[];
+        let res = Block::try_from(empty);
+        assert!(matches!(
+            res,
+            Err(BlockParseError::BlockNotStartingWithBEGIN)
+        ));
     }
 }

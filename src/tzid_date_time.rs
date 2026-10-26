@@ -5,7 +5,6 @@ use std::{fmt::Debug, str::FromStr};
 use crate::DateOrDateTime;
 use crate::errors::TzIdDateTimeParseError;
 
-
 #[derive(Debug, Clone)]
 pub struct TzIdDateTime {
     pub time_zone: Tz,
@@ -36,10 +35,16 @@ impl TryFrom<&str> for TzIdDateTime {
         if let Some(line) = line.strip_prefix("TZID=") {
             let mut tokens = line.split(':');
 
-            let tz_str = tokens.next().ok_or(TzIdDateTimeParseError::MissingTimeZonePart)?;
-            let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| TzIdDateTimeParseError::InvalidTimeZone(e.to_string()))?;
+            let tz_str = tokens
+                .next()
+                .ok_or(TzIdDateTimeParseError::MissingTimeZonePart)?;
+            let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| {
+                TzIdDateTimeParseError::InvalidTimeZone(e.to_string())
+            })?;
 
-            let date_time = tokens.next().ok_or(TzIdDateTimeParseError::MissingDateTimePart)?;
+            let date_time = tokens
+                .next()
+                .ok_or(TzIdDateTimeParseError::MissingDateTimePart)?;
 
             let date_time = NaiveDateTime::parse_from_str(date_time, "%Y%m%dT%H%M%S")?;
 

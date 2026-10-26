@@ -1,11 +1,11 @@
+use chrono::{Datelike, LocalResult, TimeZone, Timelike, Utc};
 use std::{cmp::Ordering, ops::Range};
-use chrono::{Datelike, Timelike, LocalResult, Utc, TimeZone};
 
 use crate::{
+    VEvent,
+    by_day::ByDay,
     date_or_date_time::DateOrDateTime,
     rrule::{Options, RRule},
-    by_day::ByDay,
-    VEvent,
 };
 use chrono::Duration;
 
@@ -54,7 +54,8 @@ impl<'a> VEventIterator<'a> {
                         None
                     }
                 } else {
-                    let next_year = last_occurrence.year() + rrule.common_options().interval.unwrap_or(1) as i32;
+                    let next_year = last_occurrence.year()
+                        + rrule.common_options().interval.unwrap_or(1) as i32;
                     let target_month_start = last_occurrence
                         .substitute(
                             Some(next_year),
@@ -65,7 +66,7 @@ impl<'a> VEventIterator<'a> {
                             None,
                         )
                         .unwrap();
-                    
+
                     let mut next_occurrence = target_month_start;
                     match &rrule.day {
                         ByDay::Simple(weekdays) => {
@@ -182,8 +183,14 @@ impl<'a> VEventIterator<'a> {
                 let mut next_occurrence = last_occurrence.next_by_day(&rrule.day);
 
                 loop {
-                    let dt_start_monday = self.event.dt_start.date() - Duration::days(self.event.dt_start.date().weekday().num_days_from_monday() as i64);
-                    let next_monday = next_occurrence.date() - Duration::days(next_occurrence.date().weekday().num_days_from_monday() as i64);
+                    let dt_start_monday = self.event.dt_start.date()
+                        - Duration::days(
+                            self.event.dt_start.date().weekday().num_days_from_monday() as i64,
+                        );
+                    let next_monday = next_occurrence.date()
+                        - Duration::days(
+                            next_occurrence.date().weekday().num_days_from_monday() as i64
+                        );
                     let diff_days = (next_monday - dt_start_monday).num_days();
                     let diff_weeks = diff_days / 7;
 

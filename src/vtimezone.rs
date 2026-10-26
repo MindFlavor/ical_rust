@@ -1,14 +1,12 @@
+use crate::errors::{VTimezoneOffsetParseError, VTimezoneParseError};
 use crate::{block::Block, rrule::RRule};
 use chrono::NaiveDate;
-use crate::errors::{VTimezoneParseError, VTimezoneOffsetParseError};
 
 #[derive(Debug, Clone)]
 pub struct VTimezone {
     pub tz_id: String,
     pub offsets: Vec<VTimezoneOffset>, // TODO: populate!
 }
-
-
 
 #[derive(Debug, Clone)]
 pub struct VTimezoneOffset {
@@ -72,7 +70,7 @@ impl TryFrom<Block> for VTimezoneOffset {
                     return Err(VTimezoneOffsetParseError::UnsupportedTag {
                         block: block.clone(),
                         tag: key.to_owned(),
-                    })
+                    });
                 }
             }
         }

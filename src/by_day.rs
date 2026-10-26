@@ -1,7 +1,6 @@
+use crate::errors::ByDayParseError;
 use chrono::Weekday;
 use std::str::FromStr;
-use crate::errors::ByDayParseError;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Delta {
@@ -25,10 +24,7 @@ impl FromStr for ByDay {
     type Err = ByDayParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let tokens = s
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>();
+        let tokens = s.split(',').filter(|s| !s.is_empty()).collect::<Vec<_>>();
 
         if tokens.is_empty() {
             return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });

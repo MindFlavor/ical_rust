@@ -1,13 +1,8 @@
 use crate::{
-    by_day::ByDay,
-    date_or_date_time::DateOrDateTime,
-    frequency::Frequency,
-    string_to_date_or_datetime,
-    errors::RRuleParseError,
-
+    by_day::ByDay, date_or_date_time::DateOrDateTime, errors::RRuleParseError,
+    frequency::Frequency, string_to_date_or_datetime,
 };
 use std::str::FromStr;
-
 
 pub trait Options: std::fmt::Debug {
     fn common_options(&self) -> &CommonOptions;
@@ -124,7 +119,6 @@ impl FromStr for RRule {
                         })
                     } else {
                         return Err(RRuleParseError::MissingNextTokenAfterByMonth {
-
                             line: s.to_owned(),
                         });
                     }

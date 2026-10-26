@@ -1,16 +1,15 @@
+use crate::VEvent;
 use crate::block::Block;
+use crate::errors::VCalendarParseError;
 use crate::ical_line_parser::ICalLineParser;
 use crate::vtimezone::VTimezone;
-use crate::VEvent;
 use either::*;
-use crate::errors::VCalendarParseError;
 
 #[derive(Debug, Clone, Default)]
 pub struct VCalendar {
     pub timezones: Vec<VTimezone>,
     pub events: Vec<VEvent>,
 }
-
 
 impl TryFrom<&str> for VCalendar {
     type Error = VCalendarParseError;
@@ -102,18 +101,26 @@ END:VCALENDAR";
 
         let cal = VCalendar::try_from(ics_content).unwrap();
         let event = &cal.events[0];
-        
+
         let occurrences: Vec<_> = event.into_iter().collect();
         assert_eq!(occurrences.len(), 3);
-        
+
         // Occurrence 1: Nov 5, 2022
         assert_eq!(occurrences[0].start.year(), 2022);
         assert_eq!(occurrences[0].start.month(), 11);
-        
+
         // Occurrence 2: Dec 5, 2022
-        assert_eq!(occurrences[1].start.year(), 2022, "Second occurrence should be in 2022 (December)");
-        assert_eq!(occurrences[1].start.month(), 12, "Second occurrence should be December (12)");
-        
+        assert_eq!(
+            occurrences[1].start.year(),
+            2022,
+            "Second occurrence should be in 2022 (December)"
+        );
+        assert_eq!(
+            occurrences[1].start.month(),
+            12,
+            "Second occurrence should be December (12)"
+        );
+
         // Occurrence 3: Jan 5, 2023
         assert_eq!(occurrences[2].start.year(), 2023);
         assert_eq!(occurrences[2].start.month(), 1);
@@ -135,21 +142,33 @@ END:VCALENDAR";
 
         let cal = VCalendar::try_from(ics_content).unwrap();
         let event = &cal.events[0];
-        
+
         let occurrences: Vec<_> = event.into_iter().collect();
         assert_eq!(occurrences.len(), 3);
-        
+
         // Occurrence 1: Nov 5, 2022
         assert_eq!(occurrences[0].start.year(), 2022);
         assert_eq!(occurrences[0].start.month(), 11);
-        
+
         // Occurrence 2: Jan 5, 2023 (+2 months)
-        assert_eq!(occurrences[1].start.year(), 2023, "Second occurrence should be in 2023 (January)");
-        assert_eq!(occurrences[1].start.month(), 1, "Second occurrence should be January (1)");
-        
+        assert_eq!(
+            occurrences[1].start.year(),
+            2023,
+            "Second occurrence should be in 2023 (January)"
+        );
+        assert_eq!(
+            occurrences[1].start.month(),
+            1,
+            "Second occurrence should be January (1)"
+        );
+
         // Occurrence 3: Mar 5, 2023 (+2 months)
         assert_eq!(occurrences[2].start.year(), 2023);
-        assert_eq!(occurrences[2].start.month(), 3, "Third occurrence should be March (3)");
+        assert_eq!(
+            occurrences[2].start.month(),
+            3,
+            "Third occurrence should be March (3)"
+        );
     }
 
     #[test]
@@ -166,7 +185,10 @@ END:VEVENT\r\n\
 END:VCALENDAR";
 
         let result = VCalendar::try_from(ics_content);
-        assert!(result.is_err(), "Expected an error instead of panic or successful parse");
+        assert!(
+            result.is_err(),
+            "Expected an error instead of panic or successful parse"
+        );
     }
 
     #[test]
@@ -183,7 +205,10 @@ END:VEVENT\r\n\
 END:VCALENDAR";
 
         let result = VCalendar::try_from(ics_content);
-        assert!(result.is_err(), "Expected an error instead of panic or successful parse");
+        assert!(
+            result.is_err(),
+            "Expected an error instead of panic or successful parse"
+        );
     }
 
     #[test]
@@ -275,7 +300,10 @@ END:VCALENDAR";
     fn test_bug6_missing_begin_tag_fails_safely() {
         let ics_content = "INVALID CALENDAR CONTENT\r\nSUMMARY:Test";
         let result = VCalendar::try_from(ics_content);
-        assert!(result.is_err(), "Expected an error instead of panic or successful parse");
+        assert!(
+            result.is_err(),
+            "Expected an error instead of panic or successful parse"
+        );
     }
 
     #[test]
@@ -404,7 +432,3 @@ END:VCALENDAR";
         assert_eq!(occurrences[3].start.day(), 19);
     }
 }
-
-
-
-

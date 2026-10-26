@@ -1,15 +1,13 @@
 use crate::{
+    TzIdDateTime,
     block::Block,
     date_or_date_time::{DateOrDateTime, EventOverlap},
+    errors::{DateIntersectError, TzIdDateTimeParseError, VEventParseError},
     rrule::RRule,
     vevent_iterator::VEventIterator,
-    TzIdDateTime,
-    errors::{VEventParseError, TzIdDateTimeParseError, DateIntersectError},
-
 };
 use chrono::{DateTime, Datelike, FixedOffset, Local, NaiveDateTime, TimeZone, Utc};
 use std::ops::Range;
-
 
 #[derive(Debug, Clone)]
 pub struct VEvent {
@@ -194,7 +192,7 @@ impl TryFrom<Block> for VEvent {
                     let extra =
                         extra.ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?;
                     log::trace!("parsing EXDATE ==> {}", extra);
-                    
+
                     if let Some(colon_idx) = extra.find(':') {
                         let prefix = &extra[0..=colon_idx];
                         let values_str = &extra[colon_idx + 1..];
@@ -299,9 +297,6 @@ fn string_to_date(s: &str) -> Result<DateTime<Utc>, chrono::ParseError> {
     )?))
 }
 
-fn to_tziddate_or_date(
-    s: &str,
-) -> Result<DateOrDateTime, TzIdDateTimeParseError> {
-
+fn to_tziddate_or_date(s: &str) -> Result<DateOrDateTime, TzIdDateTimeParseError> {
     Ok(s.parse::<TzIdDateTime>()?.date_time)
 }

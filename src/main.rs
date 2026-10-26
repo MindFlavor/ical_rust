@@ -1,5 +1,3 @@
-
-
 mod block;
 mod by_day;
 mod date_or_date_time;
@@ -12,7 +10,6 @@ mod vcalendar;
 mod vevent;
 mod vevent_iterator;
 mod vtimezone;
-
 
 use crate::ical_line_parser::ICalLineParser;
 use block::Block;

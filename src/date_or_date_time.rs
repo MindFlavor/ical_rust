@@ -1,18 +1,16 @@
 use crate::by_day::{ByDay, Delta};
+use crate::errors::{DateIntersectError, SubstitutionError};
 use chrono::{DateTime, Datelike, Duration, LocalResult, TimeZone, Timelike, Utc, Weekday};
 use std::{
     cmp::Ordering,
     ops::{Add, Sub},
 };
-use crate::errors::{SubstitutionError, DateIntersectError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DateOrDateTime {
     WholeDay(DateTime<Utc>),
     DateTime(DateTime<Utc>),
 }
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventOverlap {
@@ -165,7 +163,6 @@ impl DateOrDateTime {
         let year = self.year() + delta_years as i32;
         let month = final_month;
         let mut d = self.day();
-
 
         // we need to clamp because some months do not have all the dates. For example, february
         // does not have 30, 31 (and sometimes not even 29).
@@ -445,7 +442,6 @@ mod tests {
         assert_eq!(date_time.year() + 1, next.year());
         assert_eq!(date_time.month(), next.month());
     }
-
 
     #[test]
     fn next_weekday() {
