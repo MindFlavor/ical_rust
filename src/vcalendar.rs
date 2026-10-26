@@ -84,6 +84,26 @@ impl TryFrom<Block> for VCalendar {
             }
         }
 
+        // Link RECURRENCE-ID overrides to master recurring VEVENTs sharing the same UID
+        let overrides: Vec<(String, DateOrDateTime)> = events
+            .iter()
+            .filter_map(|ev| Some((ev.uid.clone()?, ev.recurrence_id?)))
+            .collect();
+
+        if !overrides.is_empty() {
+            for ev in &mut events {
+                if ev.recurrence_id.is_none()
+                    && let Some(uid) = &ev.uid
+                {
+                    for (ov_uid, rec_id) in &overrides {
+                        if uid == ov_uid && !ev.overridden_dates.contains(rec_id) {
+                            ev.overridden_dates.push(*rec_id);
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(Self { timezones, events })
     }
 }
@@ -899,5 +919,49 @@ DURATION:PT1H\r\n\
 SUMMARY:Conflict\r\n\
 END:VEVENT";
         assert!(invalid_both.parse::<VEvent>().is_err());
+    }
+
+    #[test]
+    fn test_rfc2_rdate_and_recurrence_id_override() {
+        // 1. RDATE adds additional recurrence instances in chronological order
+        let ev_rdate: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:With RDATE\r\n\
+RRULE:FREQ=DAILY;COUNT=2\r\n\
+RDATE;VALUE=DATE:20230110,20230105\r\n\
+EXDATE;VALUE=DATE:20230105\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let occs: Vec<_> = ev_rdate.into_iter().collect();
+        assert_eq!(occs.len(), 3);
+        assert_eq!(occs[0].start.day(), 1);
+        assert_eq!(occs[1].start.day(), 2);
+        assert_eq!(occs[2].start.day(), 10);
+
+        // 2. RECURRENCE-ID overrides a specific instance of a recurring VEVENT sharing the same UID
+        let cal_str = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+UID:team-sync@example.com\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Daily Sync\r\n\
+RRULE:FREQ=DAILY;COUNT=3\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+UID:team-sync@example.com\r\n\
+RECURRENCE-ID;VALUE=DATE:20230102\r\n\
+DTSTART;VALUE=DATE:20230105\r\n\
+SUMMARY:Moved Daily Sync\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+        let cal: VCalendar = cal_str.parse().unwrap();
+        let start = "20230101".parse::<DateOrDateTime>().unwrap();
+        let end = "20230110".parse::<DateOrDateTime>().unwrap();
+        let all_occs = cal.occurrences_between(start, end).unwrap();
+        assert_eq!(all_occs.len(), 3);
+        assert_eq!(all_occs[0].1.start.day(), 1);
+        assert_eq!(all_occs[1].1.start.day(), 3);
+        assert_eq!(all_occs[2].1.start.day(), 5);
+        assert_eq!(all_occs[2].0.summary, "Moved Daily Sync");
     }
 }

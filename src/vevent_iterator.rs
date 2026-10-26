@@ -8,6 +8,9 @@ pub struct VEventIterator<'a> {
     event: &'a VEvent,
     last_occurrence: Option<DateOrDateTime>,
     count: u32,
+    rdate_idx: usize,
+    peeked_rrule: Option<DateOrDateTime>,
+    rrule_exhausted: bool,
 }
 
 impl<'a> VEventIterator<'a> {
@@ -16,6 +19,9 @@ impl<'a> VEventIterator<'a> {
             event,
             last_occurrence: None,
             count: 0,
+            rdate_idx: 0,
+            peeked_rrule: None,
+            rrule_exhausted: false,
         }
     }
 
@@ -257,6 +263,53 @@ impl<'a> VEventIterator<'a> {
             Some(self.event.dt_start)
         }
     }
+
+    fn is_excluded(&self, dt: DateOrDateTime) -> bool {
+        self.event
+            .exdates
+            .iter()
+            .any(|exdate| dt.date_naive() == exdate.date_naive())
+    }
+
+    fn is_overridden(&self, dt: DateOrDateTime) -> bool {
+        self.event
+            .overridden_dates
+            .iter()
+            .any(|ov| dt.date_naive() == ov.date_naive())
+    }
+
+    fn next_valid_rrule_occurrence(&mut self) -> Option<DateOrDateTime> {
+        if self.rrule_exhausted {
+            return None;
+        }
+        loop {
+            match self.get_next_occurrence_according_to_rule_and_iterations() {
+                Some(candidate) => {
+                    if !self.is_excluded(candidate) {
+                        self.count += 1;
+                        if !self.is_overridden(candidate) {
+                            return Some(candidate);
+                        }
+                    }
+                }
+                None => {
+                    self.rrule_exhausted = true;
+                    return None;
+                }
+            }
+        }
+    }
+
+    fn next_valid_rdate(&mut self) -> Option<DateOrDateTime> {
+        while let Some(&rdate) = self.event.rdates.get(self.rdate_idx) {
+            if self.is_excluded(rdate) || self.is_overridden(rdate) {
+                self.rdate_idx += 1;
+            } else {
+                return Some(rdate);
+            }
+        }
+        None
+    }
 }
 
 impl<'a> Iterator for VEventIterator<'a> {
@@ -265,36 +318,37 @@ impl<'a> Iterator for VEventIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         log::trace!("function next({:?}) called", self);
 
-        let mut next = self.get_next_occurrence_according_to_rule_and_iterations();
-        log::trace!("next == {:?}", next);
-
-        loop {
-            // remove dates appearing in ExDate field
-            if let Some(next_non_empty) = next {
-                log::trace!("next_non_empty == {:?}", next_non_empty);
-
-                if !self
-                    .event
-                    .exdates
-                    .iter()
-                    .any(|exdate| next_non_empty.date_naive() == exdate.date_naive())
-                {
-                    // keep count
-                    self.count += 1;
-
-                    // calculate how long it's supposed to last
-                    let delta = self.event.dt_end - self.event.dt_start;
-                    let next_non_empty_end = next_non_empty + delta;
-                    return Some(Range {
-                        start: next_non_empty,
-                        end: next_non_empty_end,
-                    });
-                } else {
-                    next = self.get_next_occurrence_according_to_rule_and_iterations();
-                }
-            } else {
-                return None;
-            }
+        if self.peeked_rrule.is_none() && !self.rrule_exhausted {
+            self.peeked_rrule = self.next_valid_rrule_occurrence();
         }
+
+        let rdate_candidate = self.next_valid_rdate();
+
+        let next_start = match (self.peeked_rrule, rdate_candidate) {
+            (Some(rrule_dt), Some(rdate_dt)) => {
+                if rrule_dt < rdate_dt {
+                    self.peeked_rrule.take()
+                } else if rdate_dt < rrule_dt {
+                    self.rdate_idx += 1;
+                    Some(rdate_dt)
+                } else {
+                    self.rdate_idx += 1;
+                    self.peeked_rrule.take()
+                }
+            }
+            (Some(_), None) => self.peeked_rrule.take(),
+            (None, Some(rdate_dt)) => {
+                self.rdate_idx += 1;
+                Some(rdate_dt)
+            }
+            (None, None) => None,
+        }?;
+
+        let delta = self.event.dt_end - self.event.dt_start;
+        let next_end = next_start + delta;
+        Some(Range {
+            start: next_start,
+            end: next_end,
+        })
     }
 }

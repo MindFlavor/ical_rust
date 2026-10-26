@@ -13,6 +13,7 @@ use std::str::FromStr;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VEvent {
     pub uid: Option<String>,
+    pub recurrence_id: Option<DateOrDateTime>,
     pub dt_created: DateOrDateTime,
     pub dt_last_modified: DateOrDateTime,
     pub dt_start: DateOrDateTime,
@@ -21,7 +22,9 @@ pub struct VEvent {
     pub summary: String,
     pub description: Option<String>,
     pub rrule: Option<RRule>,
+    pub rdates: Vec<DateOrDateTime>,
     pub exdates: Vec<DateOrDateTime>,
+    pub overridden_dates: Vec<DateOrDateTime>,
     pub sequence: u32,
     pub status: Option<String>,
     pub organizer: Option<String>,
@@ -142,6 +145,7 @@ impl TryFrom<Block> for VEvent {
         }
 
         let mut uid = None;
+        let mut recurrence_id = None;
         let mut dt_created = None;
         let mut dt_last_modified = None;
         let mut dt_start: Option<DateOrDateTime> = None;
@@ -151,6 +155,7 @@ impl TryFrom<Block> for VEvent {
         let mut summary = None;
         let mut description = None;
         let mut rrule = None;
+        let mut rdates = Vec::new();
         let mut exdates = Vec::new();
         let mut sequence = None;
         let mut status = None;
@@ -164,6 +169,12 @@ impl TryFrom<Block> for VEvent {
             match prop.name {
                 "UID" => {
                     uid = Some(unescape_ical_text(prop.value));
+                }
+                "RECURRENCE-ID" => {
+                    recurrence_id = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "LAST-MODIFIED" => {
                     dt_last_modified = Some(DateOrDateTime::from_params_and_value(
@@ -227,6 +238,11 @@ impl TryFrom<Block> for VEvent {
                 "ORGANIZER" => {
                     organizer = Some(prop.raw_after_semicolon.unwrap_or(prop.value).to_string());
                 }
+                "RDATE" => {
+                    for val in prop.value.split(',').filter(|s| !s.is_empty()) {
+                        rdates.push(DateOrDateTime::from_params_and_value(&prop.params, val)?);
+                    }
+                }
                 "EXDATE" => {
                     for val in prop.value.split(',').filter(|s| !s.is_empty()) {
                         exdates.push(DateOrDateTime::from_params_and_value(&prop.params, val)?);
@@ -235,6 +251,9 @@ impl TryFrom<Block> for VEvent {
                 _ => {} // ignore
             }
         }
+
+        rdates.sort();
+        rdates.dedup();
 
         let dt_start =
             dt_start.ok_or_else(|| VEventParseError::missing_mandatory_field("DTSTART"))?;
@@ -251,6 +270,7 @@ impl TryFrom<Block> for VEvent {
 
         Ok(VEvent {
             uid,
+            recurrence_id,
             dt_last_modified: dt_last_modified.unwrap_or(dt_stamp),
             dt_start,
             dt_end,
@@ -259,7 +279,9 @@ impl TryFrom<Block> for VEvent {
             summary: summary.unwrap_or_default(),
             description,
             rrule,
+            rdates,
             exdates,
+            overridden_dates: Vec::new(),
             sequence: sequence.unwrap_or(0),
             status,
             organizer,

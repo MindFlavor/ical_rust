@@ -1,6 +1,6 @@
 [package]
 name = "ical_rust"
-version = "0.8.0"
+version = "0.8.1"
 
 edition = "2024"
 description = "A lightweight, efficient, and robust iCalendar (ics) parser and recurrence expander library"
