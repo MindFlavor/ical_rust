@@ -31,6 +31,8 @@ pub enum ByDayParseError {
 pub enum SubstitutionError {
     #[error("Cannot construct a date time variant by substituting a Whole day")]
     ConstructingDateTimeBySubstitutingWholeDay,
+    #[error("Invalid date or time resulting from substitution")]
+    InvalidDateOrTime,
 }
 
 // 4. DateIntersectError (formerly in date_or_date_time.rs)

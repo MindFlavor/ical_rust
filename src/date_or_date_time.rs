@@ -41,7 +41,8 @@ impl DateOrDateTime {
                 0,
                 0,
             )
-            .unwrap();
+            .single()
+            .ok_or(SubstitutionError::InvalidDateOrTime)?;
 
         Ok(match self {
             DateOrDateTime::WholeDay(_) => {
@@ -59,7 +60,8 @@ impl DateOrDateTime {
                     minute.unwrap_or_else(|| dt.minute()),
                     second.unwrap_or_else(|| dt.second()),
                 )
-                .unwrap(),
+                .single()
+                .ok_or(SubstitutionError::InvalidDateOrTime)?,
             ),
         })
     }
@@ -799,6 +801,19 @@ mod tests {
         assert_eq!(
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartSameDayEndsSameDay
+        );
+    }
+
+    #[test]
+    fn test_issue6_substitute_invalid_date_returns_err() {
+        let jan_31 = DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 31, 0, 0, 0).unwrap());
+        let res = jan_31.substitute(None, Some(2), None, None, None, None);
+        assert!(res.is_err());
+
+        let dt = DateOrDateTime::DateTime(Utc.with_ymd_and_hms(2023, 1, 15, 10, 0, 0).unwrap());
+        assert!(
+            dt.substitute(None, None, None, Some(25), None, None)
+                .is_err()
         );
     }
 }
