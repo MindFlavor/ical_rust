@@ -662,4 +662,23 @@ END:VCALENDAR";
         let occ1: Vec<_> = cal.events[1].into_iter().collect();
         assert!(occ1.is_empty());
     }
+
+    #[test]
+    fn test_issue16_vevent_optional_created_last_modified_sequence() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20230101T090000Z\r\n\
+DTSTAMP:20230101T080000Z\r\n\
+SUMMARY:Minimal Event\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        assert_eq!(cal.events.len(), 1);
+        let event = &cal.events[0];
+        assert_eq!(event.summary, "Minimal Event");
+        assert_eq!(event.sequence, 0);
+        assert_eq!(event.dt_created, event.dt_stamp);
+        assert_eq!(event.dt_last_modified, event.dt_stamp);
+    }
 }

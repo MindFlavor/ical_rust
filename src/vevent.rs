@@ -237,29 +237,22 @@ impl TryFrom<Block> for VEvent {
 
         let dt_start = dt_start
             .ok_or_else(|| VEventParseError::missing_mandatory_field(block.clone(), "DTSTART"))?;
+        let dt_stamp = dt_stamp.unwrap_or(dt_start);
 
         Ok(VEvent {
-            dt_last_modified: dt_last_modified.ok_or_else(|| {
-                VEventParseError::missing_mandatory_field(block.clone(), "LAST-MODIFIED")
-            })?,
+            dt_last_modified: dt_last_modified.unwrap_or(dt_stamp),
             dt_start,
             dt_start_tz,
             dt_end: dt_end.unwrap_or(dt_start), // if there is no DT_END tag, it means end is the same as start.
-            dt_created: dt_created.ok_or_else(|| {
-                VEventParseError::missing_mandatory_field(block.clone(), "CREATED")
-            })?,
-            dt_stamp: dt_stamp.ok_or_else(|| {
-                VEventParseError::missing_mandatory_field(block.clone(), "DTSTAMP")
-            })?,
+            dt_created: dt_created.unwrap_or(dt_stamp),
+            dt_stamp,
             summary: summary.ok_or_else(|| {
                 VEventParseError::missing_mandatory_field(block.clone(), "SUMMARY")
             })?,
             description,
             rrule,
             exdates,
-            sequence: sequence.ok_or_else(|| {
-                VEventParseError::missing_mandatory_field(block.clone(), "SEQUENCE")
-            })?,
+            sequence: sequence.unwrap_or(0),
             status,
             organizer,
             google_conference_url,
