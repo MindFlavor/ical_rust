@@ -583,4 +583,52 @@ END:VCALENDAR";
         assert_eq!(occurrences[0].start.day(), 1);
         assert_eq!(occurrences[1].start.day(), 3);
     }
+
+    #[test]
+    fn test_issue13_rrule_flexible_token_order_and_monthly_defaults() {
+        // 1. FREQ not first
+        let rrule1: crate::rrule::RRule = "COUNT=3;FREQ=DAILY".parse().unwrap();
+        assert!(matches!(rrule1, crate::rrule::RRule::Daily(_)));
+
+        // 2. FREQ=YEARLY;BYMONTH=6 without BYDAY/BYMONTHDAY
+        let rrule2: crate::rrule::RRule = "FREQ=YEARLY;BYMONTH=6;COUNT=2".parse().unwrap();
+        assert!(matches!(
+            rrule2,
+            crate::rrule::RRule::YearlyByMonthByMonthDay(_)
+        ));
+
+        // 3. FREQ=MONTHLY without BYDAY/BYMONTHDAY and negative BYMONTHDAY=-1
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230115\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY:Plain Monthly\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=MONTHLY;COUNT=3\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230131\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY:Last Day of Month\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=MONTHLY;BYMONTHDAY=-1;COUNT=3\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occ0: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occ0.len(), 3);
+        assert_eq!((occ0[1].start.month(), occ0[1].start.day()), (2, 15));
+        assert_eq!((occ0[2].start.month(), occ0[2].start.day()), (3, 15));
+
+        let occ1: Vec<_> = cal.events[1].into_iter().collect();
+        assert_eq!(occ1.len(), 3);
+        assert_eq!((occ1[0].start.month(), occ1[0].start.day()), (1, 31));
+        assert_eq!((occ1[1].start.month(), occ1[1].start.day()), (2, 28));
+        assert_eq!((occ1[2].start.month(), occ1[2].start.day()), (3, 31));
+    }
 }

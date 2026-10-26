@@ -44,18 +44,15 @@ impl FromStr for RRule {
     type Err = RRuleParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut tokens = s.split(';');
+        let tokens: Vec<_> = s.split(';').collect();
         let freq = tokens
-            .next()
+            .iter()
+            .find_map(|item| item.strip_prefix("FREQ="))
             .ok_or_else(|| RRuleParseError::MissingFrequencyToken { line: s.to_owned() })?;
-        let frequency = if let Some(freq) = freq.strip_prefix("FREQ=") {
-            freq.parse()
-                .map_err(|err| RRuleParseError::FrequencyParseError { err })?
-        } else {
-            return Err(RRuleParseError::MissingFrequencyToken { line: s.to_owned() });
-        };
+        let frequency = freq
+            .parse()
+            .map_err(|err| RRuleParseError::FrequencyParseError { err })?;
 
-        let tokens: Vec<_> = tokens.collect();
         let interval: Option<u32> = tokens
             .iter()
             .find(|item| item.starts_with("INTERVAL="))
@@ -84,7 +81,7 @@ impl FromStr for RRule {
             .map(|s| s.parse())
             .transpose()?;
 
-        let by_month_day: Option<u8> = tokens
+        let by_month_day: Option<i8> = tokens
             .iter()
             .find(|item| item.starts_with("BYMONTHDAY="))
             .map(|item| &item["BYMONTHDAY=".len()..])
@@ -118,9 +115,11 @@ impl FromStr for RRule {
                             common_options: CommonOptions::new(s, until, interval, count),
                         })
                     } else {
-                        return Err(RRuleParseError::MissingNextTokenAfterByMonth {
-                            line: s.to_owned(),
-                        });
+                        Self::YearlyByMonthByMonthDay(YearlyByMonthByMonthDay {
+                            month: by_month,
+                            month_day: 0,
+                            common_options: CommonOptions::new(s, until, interval, count),
+                        })
                     }
                 } else {
                     // we ignore WKST
@@ -142,9 +141,10 @@ impl FromStr for RRule {
                         common_options: CommonOptions::new(s, until, interval, count),
                     })
                 } else {
-                    return Err(RRuleParseError::MissingByDayOrByMonthDayError {
-                        line: s.to_owned(),
-                    });
+                    Self::MonthlyByMonthDay(MonthlyByMonthDay {
+                        month_day: 0,
+                        common_options: CommonOptions::new(s, until, interval, count),
+                    })
                 }
             }
 
@@ -200,7 +200,7 @@ pub struct Yearly {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct YearlyByMonthByMonthDay {
     pub month: u8,
-    pub month_day: u8,
+    pub month_day: i8,
     pub common_options: CommonOptions,
 }
 
@@ -213,7 +213,7 @@ pub struct YearlyByMonthByDay {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MonthlyByMonthDay {
-    pub month_day: u8,
+    pub month_day: i8,
     pub common_options: CommonOptions,
 }
 
