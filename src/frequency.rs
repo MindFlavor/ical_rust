@@ -1,5 +1,5 @@
-use std::str::FromStr;
 use crate::errors::FrequencyParseError;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Frequency {

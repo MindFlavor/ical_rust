@@ -1,18 +1,16 @@
 use crate::by_day::{ByDay, Delta};
+use crate::errors::{DateIntersectError, SubstitutionError};
 use chrono::{DateTime, Datelike, Duration, LocalResult, TimeZone, Timelike, Utc, Weekday};
 use std::{
     cmp::Ordering,
     ops::{Add, Sub},
 };
-use crate::errors::{SubstitutionError, DateIntersectError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DateOrDateTime {
     WholeDay(DateTime<Utc>),
     DateTime(DateTime<Utc>),
 }
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EventOverlap {
@@ -43,7 +41,8 @@ impl DateOrDateTime {
                 0,
                 0,
             )
-            .unwrap();
+            .single()
+            .ok_or(SubstitutionError::InvalidDateOrTime)?;
 
         Ok(match self {
             DateOrDateTime::WholeDay(_) => {
@@ -61,7 +60,8 @@ impl DateOrDateTime {
                     minute.unwrap_or_else(|| dt.minute()),
                     second.unwrap_or_else(|| dt.second()),
                 )
-                .unwrap(),
+                .single()
+                .ok_or(SubstitutionError::InvalidDateOrTime)?,
             ),
         })
     }
@@ -91,6 +91,9 @@ impl DateOrDateTime {
     }
 
     pub fn move_by_delta(self, delta: &Delta) -> DateOrDateTime {
+        if delta.delta == 0 {
+            return self;
+        }
         let month_start = self
             .substitute(None, None, Some(1), None, None, None)
             .unwrap();
@@ -116,7 +119,7 @@ impl DateOrDateTime {
             .sub(Duration::days(1));
 
         let mut current_delta = delta.delta.abs() - 1;
-        let increment = Duration::days(delta.delta as i64 / delta.delta.abs() as i64);
+        let increment = Duration::days(delta.delta.signum() as i64);
         let mut current_day = if increment.num_days() == 1 {
             month_start
         } else {
@@ -165,7 +168,6 @@ impl DateOrDateTime {
         let year = self.year() + delta_years as i32;
         let month = final_month;
         let mut d = self.day();
-
 
         // we need to clamp because some months do not have all the dates. For example, february
         // does not have 30, 31 (and sometimes not even 29).
@@ -295,6 +297,10 @@ impl DateOrDateTime {
                     .with_ymd_and_hms(dt_end.year(), dt_end.month(), dt_end.day(), 0, 0, 0)
                     .unwrap();
 
+                if d_start > d_end {
+                    return Err(DateIntersectError::StartDateAfterEndDate);
+                }
+
                 match (d_start.cmp(&day), d_end.cmp(&day)) {
                     (Ordering::Less, Ordering::Less) => Ok(EventOverlap::FinishesPast),
                     (Ordering::Less, Ordering::Equal) => Ok(EventOverlap::StartsPastEndsSameDay),
@@ -322,6 +328,10 @@ impl DateOrDateTime {
                         .with_ymd_and_hms(d.year(), d.month(), d.day(), 0, 0, 0)
                         .unwrap(),
                 };
+
+                if dt_start.date_naive() > dt_end.date_naive() {
+                    return Err(DateIntersectError::StartDateAfterEndDate);
+                }
 
                 match (
                     dt_start.date_naive().cmp(&dt.date_naive()),
@@ -445,7 +455,6 @@ mod tests {
         assert_eq!(date_time.year() + 1, next.year());
         assert_eq!(date_time.month(), next.month());
     }
-
 
     #[test]
     fn next_weekday() {
@@ -801,5 +810,39 @@ mod tests {
             e.intersects(dt_start, dt_end).unwrap(),
             EventOverlap::StartSameDayEndsSameDay
         );
+    }
+
+    #[test]
+    fn test_issue6_substitute_invalid_date_returns_err() {
+        let jan_31 = DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 31, 0, 0, 0).unwrap());
+        let res = jan_31.substitute(None, Some(2), None, None, None, None);
+        assert!(res.is_err());
+
+        let dt = DateOrDateTime::DateTime(Utc.with_ymd_and_hms(2023, 1, 15, 10, 0, 0).unwrap());
+        assert!(
+            dt.substitute(None, None, None, Some(25), None, None)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn test_issue15_intersects_start_after_end_always_errors() {
+        let query = DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 10, 0, 0, 0).unwrap());
+        let future_start =
+            DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 20, 0, 0, 0).unwrap());
+        let past_end =
+            DateOrDateTime::WholeDay(Utc.with_ymd_and_hms(2023, 1, 15, 0, 0, 0).unwrap());
+
+        assert!(matches!(
+            query.intersects(future_start, past_end),
+            Err(DateIntersectError::StartDateAfterEndDate)
+        ));
+
+        let query_dt =
+            DateOrDateTime::DateTime(Utc.with_ymd_and_hms(2023, 1, 10, 12, 0, 0).unwrap());
+        assert!(matches!(
+            query_dt.intersects(future_start, past_end),
+            Err(DateIntersectError::StartDateAfterEndDate)
+        ));
     }
 }

@@ -1,7 +1,6 @@
+use crate::errors::ByDayParseError;
 use chrono::Weekday;
 use std::str::FromStr;
-use crate::errors::ByDayParseError;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Delta {
@@ -25,16 +24,16 @@ impl FromStr for ByDay {
     type Err = ByDayParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let tokens = s
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>();
+        let tokens = s.split(',').filter(|s| !s.is_empty()).collect::<Vec<_>>();
 
         if tokens.is_empty() {
             return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });
         }
 
         if tokens[0].len() > 2 {
+            if tokens.len() > 1 {
+                return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });
+            }
             Ok(ByDay::Delta(tokens[0].parse()?))
         } else {
             Ok(Self::Simple(
@@ -51,8 +50,14 @@ impl FromStr for Delta {
     type Err = ByDayParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.is_ascii() || s.len() <= 2 {
+            return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });
+        }
         let weekday = to_chrono_weekday(&s[s.len() - 2..])?;
         let delta: i32 = s[..s.len() - 2].parse()?;
+        if delta == 0 {
+            return Err(ByDayParseError::ZeroDelta);
+        }
         Ok(Self { delta, weekday })
     }
 }
@@ -84,5 +89,17 @@ mod tests {
     fn parse_delta() {
         let _: ByDay = "-20MO".parse().unwrap();
         let _: ByDay = "30FR".parse().unwrap();
+    }
+
+    #[test]
+    fn test_issue4_zero_delta_rejected_and_does_not_panic() {
+        assert!("0MO".parse::<ByDay>().is_err());
+    }
+
+    #[test]
+    fn test_issue5_utf8_input_does_not_panic() {
+        assert!("1€".parse::<ByDay>().is_err());
+        assert!("1ÖM".parse::<ByDay>().is_err());
+        assert!("1MO,INVALID".parse::<ByDay>().is_err());
     }
 }

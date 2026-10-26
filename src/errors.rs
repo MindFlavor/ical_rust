@@ -7,6 +7,12 @@ use thiserror::Error;
 pub enum BlockParseError {
     #[error("Block must start with BEGIN:")]
     BlockNotStartingWithBEGIN,
+    #[error("Unclosed block: {name:?}")]
+    UnclosedBlock { name: String },
+    #[error("Mismatched END tag: expected {expected:?}, found {found:?}")]
+    MismatchedEndTag { expected: String, found: String },
+    #[error("Unexpected content after END tag")]
+    UnexpectedContentAfterEnd,
 }
 
 // 2. ByDayParseError (formerly in by_day.rs)
@@ -16,6 +22,8 @@ pub enum ByDayParseError {
     InvalidWeekday { w: String },
     #[error("Invalid delta")]
     InvalidDelta(#[from] ParseIntError),
+    #[error("Delta cannot be zero")]
+    ZeroDelta,
 }
 
 // 3. SubstitutionError (formerly in date_or_date_time.rs)
@@ -23,6 +31,8 @@ pub enum ByDayParseError {
 pub enum SubstitutionError {
     #[error("Cannot construct a date time variant by substituting a Whole day")]
     ConstructingDateTimeBySubstitutingWholeDay,
+    #[error("Invalid date or time resulting from substitution")]
+    InvalidDateOrTime,
 }
 
 // 4. DateIntersectError (formerly in date_or_date_time.rs)
@@ -148,4 +158,8 @@ pub enum VTimezoneOffsetParseError {
     MissingMandatoryField { block: Block, field: &'static str },
     #[error("Unsupported tag {tag:?}, Block: {block:?}")]
     UnsupportedTag { block: Block, tag: String },
+    #[error("Chrono parse error")]
+    ChronoParseError(#[from] chrono::ParseError),
+    #[error("RRule parse error")]
+    RRuleParseError(#[from] RRuleParseError),
 }
