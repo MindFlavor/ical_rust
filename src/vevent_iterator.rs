@@ -272,7 +272,11 @@ impl<'a> Iterator for VEventIterator<'a> {
                     // we check only for date comparison and not time because of the weird handling
                     // of timezones in EXDATE. This should be enough since the repetition can be at
                     // most per day.
-                    next_non_empty.date().cmp(&exdate.date_time.date()) == Ordering::Equal
+                    next_non_empty
+                        .date()
+                        .date_naive()
+                        .cmp(&exdate.date_time.date().date_naive())
+                        == Ordering::Equal
                 }) {
                     // keep count
                     self.count += 1;

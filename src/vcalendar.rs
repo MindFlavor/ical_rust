@@ -531,4 +531,28 @@ END:VCALENDAR";
             (2028, 2, 29)
         );
     }
+
+    #[test]
+    fn test_issue10_exdate_date_comparison_ignores_time() {
+        // Event with DateTime at 09:00 UTC, and EXDATE;VALUE=DATE:20230102 (midnight 00:00 UTC)
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20230101T090000Z\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY:Daily Meeting with Date Exdate\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=DAILY;COUNT=2\r\n\
+EXDATE;VALUE=DATE:20230102\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occurrences: Vec<_> = cal.events[0].into_iter().collect();
+        assert_eq!(occurrences.len(), 2);
+        // Jan 2 should be excluded, so the 2nd occurrence must be Jan 3
+        assert_eq!(occurrences[0].start.day(), 1);
+        assert_eq!(occurrences[1].start.day(), 3);
+    }
 }
