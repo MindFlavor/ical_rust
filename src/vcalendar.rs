@@ -643,7 +643,7 @@ END:VCALENDAR";
         // 2. FREQ=YEARLY;BYMONTH=6 without BYDAY/BYMONTHDAY
         let rrule2: crate::rrule::RRule = "FREQ=YEARLY;BYMONTH=6;COUNT=2".parse().unwrap();
         assert_eq!(rrule2.frequency, crate::Frequency::Yearly);
-        assert_eq!(rrule2.by_month, Some(6));
+        assert_eq!(rrule2.by_month, vec![6]);
 
         // 3. FREQ=MONTHLY without BYDAY/BYMONTHDAY and negative BYMONTHDAY=-1
         let ics_content = "BEGIN:VCALENDAR\r\n\
@@ -995,5 +995,51 @@ END:VEVENT"
             .unwrap();
         let days: Vec<u32> = ev_wkst_su.into_iter().map(|o| o.start.day()).collect();
         assert_eq!(days, vec![7, 15, 21, 29]);
+    }
+
+    #[test]
+    fn test_rfc4_multi_bymonth_bymonthday_and_bysetpos() {
+        // 1. Multi-value BYMONTHDAY=1,15,-1 in MONTHLY recurrence
+        let ev_bmd: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Paydays\r\n\
+RRULE:FREQ=MONTHLY;BYMONTHDAY=1,15,-1;COUNT=4\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let bmd_dates: Vec<(u32, u32)> = ev_bmd
+            .into_iter()
+            .map(|o| (o.start.month(), o.start.day()))
+            .collect();
+        assert_eq!(bmd_dates, vec![(1, 1), (1, 15), (1, 31), (2, 1)]);
+
+        // 2. Multi-value BYMONTH=6,12 in YEARLY recurrence
+        let ev_bm: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230610\r\n\
+SUMMARY:Semi-Annual Review\r\n\
+RRULE:FREQ=YEARLY;BYMONTH=6,12;BYMONTHDAY=10;COUNT=3\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let bm_dates: Vec<(i32, u32, u32)> = ev_bm
+            .into_iter()
+            .map(|o| (o.start.year(), o.start.month(), o.start.day()))
+            .collect();
+        assert_eq!(bm_dates, vec![(2023, 6, 10), (2023, 12, 10), (2024, 6, 10)]);
+
+        // 3. BYSETPOS=-1 with BYDAY=MO,TU,WE,TH,FR ("last weekday of the month")
+        let ev_setpos: VEvent = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230131\r\n\
+SUMMARY:Last Weekday of Month\r\n\
+RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1;COUNT=3\r\n\
+END:VEVENT"
+            .parse()
+            .unwrap();
+        let setpos_dates: Vec<(u32, u32)> = ev_setpos
+            .into_iter()
+            .map(|o| (o.start.month(), o.start.day()))
+            .collect();
+        // Jan 31 2023 (Tue), Feb 28 2023 (Tue), Mar 31 2023 (Fri)
+        assert_eq!(setpos_dates, vec![(1, 31), (2, 28), (3, 31)]);
     }
 }

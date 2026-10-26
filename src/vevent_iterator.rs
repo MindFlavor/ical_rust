@@ -90,6 +90,94 @@ impl<'a> VEventIterator<'a> {
         }
     }
 
+    fn apply_by_set_pos(
+        candidates: Vec<DateOrDateTime>,
+        by_set_pos: &[i16],
+    ) -> Vec<DateOrDateTime> {
+        if by_set_pos.is_empty() {
+            return candidates;
+        }
+        let len = candidates.len() as i32;
+        let mut result = Vec::new();
+        for &pos in by_set_pos {
+            let idx = if pos > 0 {
+                pos as i32 - 1
+            } else {
+                len + pos as i32
+            };
+            if idx >= 0 && idx < len {
+                result.push(candidates[idx as usize]);
+            }
+        }
+        result.sort_unstable();
+        result.dedup();
+        result
+    }
+
+    fn candidates_in_month(
+        base: DateOrDateTime,
+        year: i32,
+        month: u32,
+        rrule: &RRule,
+        default_day: u32,
+    ) -> Vec<DateOrDateTime> {
+        let month_day_candidates: Option<Vec<DateOrDateTime>> = if rrule.by_month_day.is_empty() {
+            None
+        } else {
+            let mut v: Vec<DateOrDateTime> = rrule
+                .by_month_day
+                .iter()
+                .map(|&md| Self::with_year_month_clamped_day(base, year, month, md, default_day))
+                .collect();
+            v.sort_unstable();
+            v.dedup();
+            Some(v)
+        };
+
+        let by_day_candidates: Option<Vec<DateOrDateTime>> = if rrule.by_day.is_empty() {
+            None
+        } else {
+            Some(base.matching_days_in_month(year, month, &rrule.by_day))
+        };
+
+        match (month_day_candidates, by_day_candidates) {
+            (Some(md), Some(bd)) => md.into_iter().filter(|d| bd.contains(d)).collect(),
+            (Some(md), None) => md,
+            (None, Some(bd)) => bd,
+            (None, None) => vec![Self::with_year_month_clamped_day(
+                base,
+                year,
+                month,
+                0,
+                default_day,
+            )],
+        }
+    }
+
+    fn candidates_in_year(
+        base: DateOrDateTime,
+        year: i32,
+        rrule: &RRule,
+        default_month: u32,
+        default_day: u32,
+    ) -> Vec<DateOrDateTime> {
+        let mut months: Vec<u32> = if rrule.by_month.is_empty() {
+            vec![default_month]
+        } else {
+            rrule.by_month.iter().map(|&m| m as u32).collect()
+        };
+        months.sort_unstable();
+        months.dedup();
+
+        let mut all = Vec::new();
+        for m in months {
+            all.extend(Self::candidates_in_month(base, year, m, rrule, default_day));
+        }
+        all.sort_unstable();
+        all.dedup();
+        Self::apply_by_set_pos(all, &rrule.by_set_pos)
+    }
+
     fn get_next_occurrence_according_to_rule(
         &mut self,
         last_occurrence: DateOrDateTime,
@@ -101,103 +189,82 @@ impl<'a> VEventIterator<'a> {
 
         let wall_next = match rrule.frequency {
             Frequency::Yearly => {
-                let target_month = rrule
-                    .by_month
-                    .map(|m| m as u32)
-                    .unwrap_or_else(|| dt_start_wall.month());
-
-                if !rrule.by_day.is_empty() {
-                    if last_occurrence.month() == target_month {
-                        if let Some(next_in_year) = last_occurrence
-                            .matching_days_in_month(
-                                last_occurrence.year(),
-                                target_month,
-                                &rrule.by_day,
-                            )
-                            .into_iter()
-                            .find(|&d| d > last_occurrence)
-                        {
-                            next_in_year
-                        } else {
-                            let mut year = last_occurrence.year() + interval as i32;
-                            loop {
-                                if let Some(first) = last_occurrence
-                                    .matching_days_in_month(year, target_month, &rrule.by_day)
-                                    .into_iter()
-                                    .next()
-                                {
-                                    break first;
-                                }
-                                year += interval as i32;
-                            }
-                        }
-                    } else {
-                        let mut year = if last_occurrence.month() < target_month {
-                            last_occurrence.year()
-                        } else {
-                            last_occurrence.year() + interval as i32
-                        };
-                        loop {
-                            if let Some(first) = last_occurrence
-                                .matching_days_in_month(year, target_month, &rrule.by_day)
-                                .into_iter()
-                                .next()
-                            {
-                                break first;
-                            }
-                            year += interval as i32;
-                        }
-                    }
+                let current_year_candidates = Self::candidates_in_year(
+                    last_occurrence,
+                    last_occurrence.year(),
+                    rrule,
+                    dt_start_wall.month(),
+                    dt_start_wall.day(),
+                );
+                if let Some(&next_in_year) = current_year_candidates
+                    .iter()
+                    .find(|&&d| d > last_occurrence)
+                {
+                    next_in_year
                 } else {
-                    Self::with_year_month_clamped_day(
-                        last_occurrence,
-                        last_occurrence.year() + interval as i32,
-                        target_month,
-                        rrule.by_month_day.unwrap_or(0),
-                        dt_start_wall.day(),
-                    )
+                    let mut year = last_occurrence.year() + interval as i32;
+                    loop {
+                        let year_candidates = Self::candidates_in_year(
+                            last_occurrence,
+                            year,
+                            rrule,
+                            dt_start_wall.month(),
+                            dt_start_wall.day(),
+                        );
+                        if let Some(&first) = year_candidates.first() {
+                            break first;
+                        }
+                        year += interval as i32;
+                    }
                 }
             }
 
             Frequency::Monthly => {
-                if !rrule.by_day.is_empty() {
-                    if let Some(next_in_month) = last_occurrence
-                        .matching_days_in_month(
+                let current_month_ok = rrule.by_month.is_empty()
+                    || rrule.by_month.contains(&(last_occurrence.month() as u8));
+                let current_month_candidates = if current_month_ok {
+                    Self::apply_by_set_pos(
+                        Self::candidates_in_month(
+                            last_occurrence,
                             last_occurrence.year(),
                             last_occurrence.month(),
-                            &rrule.by_day,
-                        )
-                        .into_iter()
-                        .find(|&d| d > last_occurrence)
-                    {
-                        next_in_month
-                    } else {
-                        let mut step_months = interval;
-                        loop {
-                            let total_months = (last_occurrence.month() - 1) + step_months;
-                            let year = last_occurrence.year() + (total_months / 12) as i32;
-                            let month = (total_months % 12) + 1;
-                            if let Some(first) = last_occurrence
-                                .matching_days_in_month(year, month, &rrule.by_day)
-                                .into_iter()
-                                .next()
-                            {
+                            rrule,
+                            dt_start_wall.day(),
+                        ),
+                        &rrule.by_set_pos,
+                    )
+                } else {
+                    Vec::new()
+                };
+
+                if let Some(&next_in_month) = current_month_candidates
+                    .iter()
+                    .find(|&&d| d > last_occurrence)
+                {
+                    next_in_month
+                } else {
+                    let mut step_months = interval;
+                    loop {
+                        let total_months = (last_occurrence.month() - 1) + step_months;
+                        let year = last_occurrence.year() + (total_months / 12) as i32;
+                        let month = (total_months % 12) + 1;
+                        if rrule.by_month.is_empty() || rrule.by_month.contains(&(month as u8)) {
+                            let month_candidates = Self::apply_by_set_pos(
+                                Self::candidates_in_month(
+                                    last_occurrence,
+                                    year,
+                                    month,
+                                    rrule,
+                                    dt_start_wall.day(),
+                                ),
+                                &rrule.by_set_pos,
+                            );
+                            if let Some(&first) = month_candidates.first() {
                                 break first;
                             }
-                            step_months += interval;
                         }
+                        step_months += interval;
                     }
-                } else {
-                    let total_months = (last_occurrence.month() - 1) + interval;
-                    let year = last_occurrence.year() + (total_months / 12) as i32;
-                    let month = (total_months % 12) + 1;
-                    Self::with_year_month_clamped_day(
-                        last_occurrence,
-                        year,
-                        month,
-                        rrule.by_month_day.unwrap_or(0),
-                        dt_start_wall.day(),
-                    )
                 }
             }
 

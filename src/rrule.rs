@@ -13,9 +13,10 @@ pub struct RRule {
     pub interval: u32,
     pub count: Option<u32>,
     pub until: Option<DateOrDateTime>,
-    pub by_month: Option<u8>,
-    pub by_month_day: Option<i8>,
+    pub by_month: Vec<u8>,
+    pub by_month_day: Vec<i8>,
     pub by_day: Vec<WeekdayRule>,
+    pub by_set_pos: Vec<i16>,
     pub wkst: Option<chrono::Weekday>,
 }
 
@@ -54,11 +55,23 @@ impl fmt::Display for RRule {
                 }
             }
         }
-        if let Some(by_month) = self.by_month {
-            write!(f, ";BYMONTH={by_month}")?;
+        if !self.by_month.is_empty() {
+            let months = self
+                .by_month
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            write!(f, ";BYMONTH={months}")?;
         }
-        if let Some(by_month_day) = self.by_month_day {
-            write!(f, ";BYMONTHDAY={by_month_day}")?;
+        if !self.by_month_day.is_empty() {
+            let month_days = self
+                .by_month_day
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            write!(f, ";BYMONTHDAY={month_days}")?;
         }
         if !self.by_day.is_empty() {
             let days = self
@@ -68,6 +81,15 @@ impl fmt::Display for RRule {
                 .collect::<Vec<_>>()
                 .join(",");
             write!(f, ";BYDAY={days}")?;
+        }
+        if !self.by_set_pos.is_empty() {
+            let pos = self
+                .by_set_pos
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
+            write!(f, ";BYSETPOS={pos}")?;
         }
         if let Some(wkst) = self.wkst {
             write!(f, ";WKST={}", weekday_to_ical_str(wkst))?;
@@ -116,28 +138,38 @@ impl FromStr for RRule {
             return Err(RRuleParseError::BothCountAndUntilSpecified);
         }
 
-        let by_month: Option<u8> = tokens
+        let by_month: Vec<u8> = tokens
             .iter()
             .find_map(|item| item.strip_prefix("BYMONTH="))
-            .map(|item| item.parse())
-            .transpose()?;
+            .map(|item| {
+                item.split(',')
+                    .map(|m| m.parse::<u8>())
+                    .collect::<Result<Vec<u8>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
 
-        if let Some(month) = by_month
-            && !(1..=12).contains(&month)
-        {
-            return Err(RRuleParseError::InvalidByMonth { month });
+        for &month in &by_month {
+            if !(1..=12).contains(&month) {
+                return Err(RRuleParseError::InvalidByMonth { month });
+            }
         }
 
-        let by_month_day: Option<i8> = tokens
+        let by_month_day: Vec<i8> = tokens
             .iter()
             .find_map(|item| item.strip_prefix("BYMONTHDAY="))
-            .map(|item| item.parse())
-            .transpose()?;
+            .map(|item| {
+                item.split(',')
+                    .map(|d| d.parse::<i8>())
+                    .collect::<Result<Vec<i8>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
 
-        if let Some(day) = by_month_day
-            && (day == 0 || !(-31..=31).contains(&day))
-        {
-            return Err(RRuleParseError::InvalidByMonthDay { day });
+        for &day in &by_month_day {
+            if day == 0 || !(-31..=31).contains(&day) {
+                return Err(RRuleParseError::InvalidByMonthDay { day });
+            }
         }
 
         let by_day: Vec<WeekdayRule> = tokens
@@ -150,6 +182,23 @@ impl FromStr for RRule {
                 line: s.to_owned(),
             })?
             .unwrap_or_default();
+
+        let by_set_pos: Vec<i16> = tokens
+            .iter()
+            .find_map(|item| item.strip_prefix("BYSETPOS="))
+            .map(|item| {
+                item.split(',')
+                    .map(|p| p.parse::<i16>())
+                    .collect::<Result<Vec<i16>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        for &pos in &by_set_pos {
+            if pos == 0 || !(-366..=366).contains(&pos) {
+                return Err(RRuleParseError::InvalidBySetPos { pos });
+            }
+        }
 
         let wkst: Option<chrono::Weekday> = tokens
             .iter()
@@ -169,6 +218,7 @@ impl FromStr for RRule {
             by_month,
             by_month_day,
             by_day,
+            by_set_pos,
             wkst,
         })
     }
