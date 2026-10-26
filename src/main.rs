@@ -1,24 +1,5 @@
-mod block;
-mod by_day;
-mod date_or_date_time;
-mod errors;
-mod frequency;
-mod ical_line_parser;
-mod rrule;
-pub mod tzid_date_time;
-mod vcalendar;
-mod vevent;
-mod vevent_iterator;
-mod vtimezone;
-
-use crate::ical_line_parser::ICalLineParser;
-use block::Block;
 use chrono::{DateTime, Datelike, Local, TimeZone, Utc};
-pub use date_or_date_time::*;
-use std::collections::HashMap;
-pub use tzid_date_time::*;
-pub use vcalendar::*;
-pub use vevent::*;
+use ical_rust::*;
 
 fn main() {
     let e: DateOrDateTime =
@@ -39,7 +20,12 @@ fn main() {
         EventOverlap::StartsPastEndsSameDay
     );
 
-    let whole_file = std::fs::read_to_string("/home/mindflavor/tmp/basic.ics.1").unwrap();
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/home/mindflavor/tmp/basic.ics.1".to_owned());
+    let Ok(whole_file) = std::fs::read_to_string(path) else {
+        return;
+    };
     //let contents = whole_file.split("\r\n").collect::<Vec<_>>();
     //let ical_lines: &[String] = &ICalLineParser::new(&contents).collect::<Vec<_>>();
     ////println!("ical_lines == {:?}", ical_lines);
@@ -192,4 +178,14 @@ fn main() {
     ////    println!("{:?}", start);
     ////    curr = item.next_occurrence(start);
     ////}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::main;
+
+    #[test]
+    fn test_issue18_main_does_not_panic_when_file_missing() {
+        main();
+    }
 }
