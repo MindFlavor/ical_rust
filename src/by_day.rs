@@ -31,6 +31,9 @@ impl FromStr for ByDay {
         }
 
         if tokens[0].len() > 2 {
+            if tokens.len() > 1 {
+                return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });
+            }
             Ok(ByDay::Delta(tokens[0].parse()?))
         } else {
             Ok(Self::Simple(
@@ -47,6 +50,9 @@ impl FromStr for Delta {
     type Err = ByDayParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if !s.is_ascii() || s.len() <= 2 {
+            return Err(ByDayParseError::InvalidWeekday { w: s.to_owned() });
+        }
         let weekday = to_chrono_weekday(&s[s.len() - 2..])?;
         let delta: i32 = s[..s.len() - 2].parse()?;
         if delta == 0 {
@@ -88,5 +94,12 @@ mod tests {
     #[test]
     fn test_issue4_zero_delta_rejected_and_does_not_panic() {
         assert!("0MO".parse::<ByDay>().is_err());
+    }
+
+    #[test]
+    fn test_issue5_utf8_input_does_not_panic() {
+        assert!("1€".parse::<ByDay>().is_err());
+        assert!("1ÖM".parse::<ByDay>().is_err());
+        assert!("1MO,INVALID".parse::<ByDay>().is_err());
     }
 }
