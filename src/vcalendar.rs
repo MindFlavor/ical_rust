@@ -631,4 +631,35 @@ END:VCALENDAR";
         assert_eq!((occ1[1].start.month(), occ1[1].start.day()), (2, 28));
         assert_eq!((occ1[2].start.month(), occ1[2].start.day()), (3, 31));
     }
+
+    #[test]
+    fn test_issue14_first_occurrence_respects_until_and_count() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20230110T090000Z\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY:Zero Count Event\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=DAILY;COUNT=0\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20230110T090000Z\r\n\
+LAST-MODIFIED:20230101T000000Z\r\n\
+CREATED:20230101T000000Z\r\n\
+DTSTAMP:20230101T000000Z\r\n\
+SUMMARY:Expired Until Event\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=DAILY;UNTIL=20230101T000000Z\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let occ0: Vec<_> = cal.events[0].into_iter().collect();
+        assert!(occ0.is_empty());
+
+        let occ1: Vec<_> = cal.events[1].into_iter().collect();
+        assert!(occ1.is_empty());
+    }
 }

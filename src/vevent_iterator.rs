@@ -259,6 +259,11 @@ impl<'a> VEventIterator<'a> {
                 next_occurrence
             })
         } else {
+            if let Some(rrule) = &self.event.rrule {
+                if rrule.is_out_of_count(self.count) || rrule.is_expired(self.event.dt_start) {
+                    return None;
+                }
+            }
             self.last_occurrence = Some(self.event.dt_start);
             Some(self.event.dt_start)
         }
