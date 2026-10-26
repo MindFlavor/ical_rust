@@ -5,10 +5,10 @@ fn test_issue3_malformed_dtstart_or_rrule_in_vtimezone_returns_err() {
     let bad_dtstart_block = Block {
         name: "STANDARD".to_string(),
         inner_lines: vec![
-            "TZNAME:CET".to_string(),
-            "TZOFFSETFROM:+0200".to_string(),
-            "TZOFFSETTO:+0100".to_string(),
-            "DTSTART:INVALID_DATE".to_string(),
+            "TZNAME:CET".into(),
+            "TZOFFSETFROM:+0200".into(),
+            "TZOFFSETTO:+0100".into(),
+            "DTSTART:INVALID_DATE".into(),
         ],
         inner_blocks: vec![],
     };
@@ -17,11 +17,11 @@ fn test_issue3_malformed_dtstart_or_rrule_in_vtimezone_returns_err() {
     let bad_rrule_block = Block {
         name: "STANDARD".to_string(),
         inner_lines: vec![
-            "TZNAME:CET".to_string(),
-            "TZOFFSETFROM:+0200".to_string(),
-            "TZOFFSETTO:+0100".to_string(),
-            "DTSTART:19701025T030000".to_string(),
-            "RRULE:INVALID_RRULE".to_string(),
+            "TZNAME:CET".into(),
+            "TZOFFSETFROM:+0200".into(),
+            "TZOFFSETTO:+0100".into(),
+            "DTSTART:19701025T030000".into(),
+            "RRULE:INVALID_RRULE".into(),
         ],
         inner_blocks: vec![],
     };

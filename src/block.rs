@@ -1,14 +1,15 @@
 use crate::{errors::BlockParseError, ical_line_parser::ICalLineParser};
-use std::str::FromStr;
+use std::{borrow::Cow, str::FromStr};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Block {
+pub struct Block<'a> {
     pub name: String,
-    pub inner_lines: Vec<String>,
-    pub inner_blocks: Vec<Block>,
+    pub inner_lines: Vec<Cow<'a, str>>,
+    pub inner_blocks: Vec<Block<'a>>,
 }
 
-impl Block {
+impl<'a> Block<'a> {
+    #[must_use]
     pub fn name(&self) -> &str {
         self.name.as_ref()
     }
@@ -16,37 +17,44 @@ impl Block {
     pub fn from_lines<I, S>(lines: I) -> Result<Self, BlockParseError>
     where
         I: IntoIterator<Item = S>,
-        S: Into<String> + AsRef<str>,
+        S: Into<Cow<'a, str>>,
     {
-        let mut stack: Vec<Block> = Vec::new();
-        let mut root: Option<Block> = None;
+        let mut stack: Vec<Block<'a>> = Vec::new();
+        let mut root: Option<Block<'a>> = None;
 
         for line in lines {
+            let line: Cow<'a, str> = line.into();
             let s = line.as_ref();
 
             if root.is_some() {
                 if s.trim().is_empty() {
                     continue;
-                } else {
-                    return Err(BlockParseError::UnexpectedContentAfterEnd);
                 }
+                return Err(BlockParseError::UnexpectedContentAfterEnd);
             }
 
-            if s.len() >= 6 && s.is_char_boundary(6) && s[..6].eq_ignore_ascii_case("BEGIN:") {
+            if let Some(rest) = s
+                .get(..6)
+                .filter(|p| p.eq_ignore_ascii_case("BEGIN:"))
+                .and_then(|_| s.get(6..))
+            {
                 stack.push(Block {
-                    name: s[6..].to_ascii_uppercase(),
+                    name: rest.to_ascii_uppercase(),
                     inner_lines: Vec::new(),
                     inner_blocks: Vec::new(),
                 });
-            } else if s.len() >= 4 && s.is_char_boundary(4) && s[..4].eq_ignore_ascii_case("END:") {
-                let end_name = s[4..].to_ascii_uppercase();
+            } else if let Some(rest) = s
+                .get(..4)
+                .filter(|p| p.eq_ignore_ascii_case("END:"))
+                .and_then(|_| s.get(4..))
+            {
                 let top = stack
                     .pop()
                     .ok_or(BlockParseError::BlockNotStartingWithBEGIN)?;
-                if top.name != end_name {
+                if !top.name.eq_ignore_ascii_case(rest) {
                     return Err(BlockParseError::MismatchedEndTag {
                         expected: top.name,
-                        found: end_name,
+                        found: rest.to_ascii_uppercase(),
                     });
                 }
                 if let Some(parent) = stack.last_mut() {
@@ -55,7 +63,7 @@ impl Block {
                     root = Some(top);
                 }
             } else if let Some(current) = stack.last_mut() {
-                current.inner_lines.push(line.into());
+                current.inner_lines.push(line);
             } else if !s.trim().is_empty() {
                 return Err(BlockParseError::BlockNotStartingWithBEGIN);
             }
@@ -71,23 +79,23 @@ impl Block {
     }
 }
 
-impl TryFrom<&str> for Block {
+impl<'a> TryFrom<&'a str> for Block<'a> {
     type Error = BlockParseError;
 
-    fn try_from(text: &str) -> Result<Self, Self::Error> {
+    fn try_from(text: &'a str) -> Result<Self, Self::Error> {
         Self::from_lines(ICalLineParser::new(text))
     }
 }
 
-impl FromStr for Block {
+impl FromStr for Block<'static> {
     type Err = BlockParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s)
+        Self::from_lines(ICalLineParser::new(s).map(|c| Cow::Owned(c.into_owned())))
     }
 }
 
-impl<'a> TryFrom<&'a [String]> for Block {
+impl<'a> TryFrom<&'a [String]> for Block<'a> {
     type Error = BlockParseError;
 
     fn try_from(lines: &'a [String]) -> Result<Self, Self::Error> {

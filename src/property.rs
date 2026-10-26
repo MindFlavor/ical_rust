@@ -100,13 +100,17 @@ pub(crate) fn split_outside_quotes(s: &str, delimiter: u8) -> Vec<&str> {
     result
 }
 
+#[must_use]
 pub fn unescape_ical_text(s: &str) -> String {
+    if !s.contains('\\') {
+        return s.to_owned();
+    }
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.next() {
-                Some('n') | Some('N') => out.push('\n'),
+                Some('n' | 'N') => out.push('\n'),
                 Some('\\') => out.push('\\'),
                 Some(';') => out.push(';'),
                 Some(',') => out.push(','),

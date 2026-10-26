@@ -37,6 +37,20 @@ impl RRule {
     }
 }
 
+fn write_csv<T: fmt::Display>(
+    f: &mut fmt::Formatter<'_>,
+    prefix: &str,
+    items: &[T],
+) -> fmt::Result {
+    if let Some((first, rest)) = items.split_first() {
+        write!(f, "{prefix}{first}")?;
+        for item in rest {
+            write!(f, ",{item}")?;
+        }
+    }
+    Ok(())
+}
+
 impl fmt::Display for RRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "FREQ={}", self.frequency)?;
@@ -54,42 +68,10 @@ impl fmt::Display for RRule {
                 }
             }
         }
-        if !self.by_month.is_empty() {
-            let months = self
-                .by_month
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYMONTH={months}")?;
-        }
-        if !self.by_month_day.is_empty() {
-            let month_days = self
-                .by_month_day
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYMONTHDAY={month_days}")?;
-        }
-        if !self.by_day.is_empty() {
-            let days = self
-                .by_day
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYDAY={days}")?;
-        }
-        if !self.by_set_pos.is_empty() {
-            let pos = self
-                .by_set_pos
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
-            write!(f, ";BYSETPOS={pos}")?;
-        }
+        write_csv(f, ";BYMONTH=", &self.by_month)?;
+        write_csv(f, ";BYMONTHDAY=", &self.by_month_day)?;
+        write_csv(f, ";BYDAY=", &self.by_day)?;
+        write_csv(f, ";BYSETPOS=", &self.by_set_pos)?;
         if let Some(wkst) = self.wkst {
             write!(f, ";WKST={}", weekday_to_ical_str(wkst))?;
         }
