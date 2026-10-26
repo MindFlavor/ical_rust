@@ -8,8 +8,9 @@ use crate::{
 };
 use chrono::Duration;
 use std::ops::Range;
+use std::str::FromStr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VEvent {
     pub dt_created: DateOrDateTime,
     pub dt_last_modified: DateOrDateTime,
@@ -26,7 +27,7 @@ pub struct VEvent {
     pub google_conference_url: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OccurrenceResult {
     pub occurrence: Range<DateOrDateTime>,
     pub event_overlap: EventOverlap,
@@ -114,10 +115,31 @@ impl VEvent {
     }
 }
 
+impl TryFrom<&str> for VEvent {
+    type Error = VEventParseError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let block = Block::try_from(s)?;
+        Self::try_from(block)
+    }
+}
+
+impl FromStr for VEvent {
+    type Err = VEventParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
 impl TryFrom<Block> for VEvent {
     type Error = VEventParseError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
+        if block.name != "VEVENT" {
+            return Err(VEventParseError::UnsupportedTag { tag: block.name });
+        }
+
         let mut dt_created = None;
         let mut dt_last_modified = None;
         let mut dt_start: Option<DateOrDateTime> = None;
@@ -133,8 +155,8 @@ impl TryFrom<Block> for VEvent {
         let mut google_conference_url = None;
 
         for line in block.inner_lines.iter() {
-            let prop = ContentLine::parse(line)
-                .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?;
+            let prop =
+                ContentLine::parse(line).ok_or_else(|| VEventParseError::missing_colon(line))?;
 
             match prop.name {
                 "LAST-MODIFIED" => {
@@ -174,9 +196,11 @@ impl TryFrom<Block> for VEvent {
                     description = Some(unescape_ical_text(prop.value));
                 }
                 "SEQUENCE" => {
-                    sequence = Some(prop.value.parse::<u32>().map_err(|e| {
-                        VEventParseError::sequence_parse_int_error(block.clone(), e)
-                    })?);
+                    sequence = Some(
+                        prop.value
+                            .parse::<u32>()
+                            .map_err(|e| VEventParseError::sequence_parse_int_error(line, e))?,
+                    );
                 }
                 "RRULE" => {
                     rrule = Some(prop.value.parse::<RRule>()?);
@@ -199,8 +223,8 @@ impl TryFrom<Block> for VEvent {
             }
         }
 
-        let dt_start = dt_start
-            .ok_or_else(|| VEventParseError::missing_mandatory_field(block.clone(), "DTSTART"))?;
+        let dt_start =
+            dt_start.ok_or_else(|| VEventParseError::missing_mandatory_field("DTSTART"))?;
         let dt_stamp = dt_stamp.unwrap_or(dt_start);
 
         Ok(VEvent {
@@ -209,9 +233,7 @@ impl TryFrom<Block> for VEvent {
             dt_end: dt_end.unwrap_or(dt_start),
             dt_created: dt_created.unwrap_or(dt_stamp),
             dt_stamp,
-            summary: summary.ok_or_else(|| {
-                VEventParseError::missing_mandatory_field(block.clone(), "SUMMARY")
-            })?,
+            summary: summary.ok_or_else(|| VEventParseError::missing_mandatory_field("SUMMARY"))?,
             description,
             rrule,
             exdates,

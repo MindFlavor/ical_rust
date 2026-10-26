@@ -1,9 +1,8 @@
-use crate::block::Block;
 use std::num::ParseIntError;
 use thiserror::Error;
 
-// 1. BlockParseError (formerly in block.rs)
-#[derive(Error, Debug)]
+// 1. BlockParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum BlockParseError {
     #[error("Block must start with BEGIN:")]
     BlockNotStartingWithBEGIN,
@@ -15,8 +14,8 @@ pub enum BlockParseError {
     UnexpectedContentAfterEnd,
 }
 
-// 2. ByDayParseError (formerly in by_day.rs)
-#[derive(Error, Debug)]
+// 2. ByDayParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum ByDayParseError {
     #[error("Invalid weekday {w:?})")]
     InvalidWeekday { w: String },
@@ -26,8 +25,8 @@ pub enum ByDayParseError {
     ZeroDelta,
 }
 
-// 3. SubstitutionError (formerly in date_or_date_time.rs)
-#[derive(Error, Debug)]
+// 3. SubstitutionError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum SubstitutionError {
     #[error("Cannot construct a date time variant by substituting a Whole day")]
     ConstructingDateTimeBySubstitutingWholeDay,
@@ -35,22 +34,22 @@ pub enum SubstitutionError {
     InvalidDateOrTime,
 }
 
-// 4. DateIntersectError (formerly in date_or_date_time.rs)
-#[derive(Error, Debug)]
+// 4. DateIntersectError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum DateIntersectError {
     #[error("Start date cannot be after end date")]
     StartDateAfterEndDate,
 }
 
-// 5. FrequencyParseError (formerly in frequency.rs)
-#[derive(Error, Debug)]
+// 5. FrequencyParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum FrequencyParseError {
     #[error("Unrecognized frequency {freq:?})")]
     UnrecognizedFrequency { freq: String },
 }
 
-// 6. RRuleParseError (formerly in rrule.rs)
-#[derive(Error, Debug)]
+// 6. RRuleParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum RRuleParseError {
     #[error("Frequency parse error {err:?})")]
     FrequencyParseError { err: FrequencyParseError },
@@ -79,8 +78,8 @@ pub enum RRuleParseError {
     },
 }
 
-// 7. TzIdDateTimeParseError (formerly TzIdDateTimeFormatError in tzid_date_time.rs)
-#[derive(Error, Debug)]
+// 7. TzIdDateTimeParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum TzIdDateTimeParseError {
     #[error("Parse date time error")]
     ChronoParseError(#[from] chrono::ParseError),
@@ -96,8 +95,8 @@ pub enum TzIdDateTimeParseError {
     MissingDateTimePart,
 }
 
-// 8. VCalendarParseError (formerly in vcalendar.rs)
-#[derive(Error, Debug)]
+// 8. VCalendarParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum VCalendarParseError {
     #[error("VTimezone parse error")]
     VTimezoneParseError(#[from] VTimezoneParseError),
@@ -109,17 +108,21 @@ pub enum VCalendarParseError {
     BlockParseError(#[from] BlockParseError),
 }
 
-// 9. VEventParseError (formerly VEventFormatError in vevent.rs)
-#[derive(Error, Debug)]
+// 9. VEventParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum VEventParseError {
-    #[error("Missing mandatory colon (block {block:?})")]
-    MissingColon { block: Block },
-    #[error("Missing mandatory semicolon (block {block:?})")]
-    MissingSemicolon { block: Block },
-    #[error("Missing mandatory field {field:?}. Block:\n{block:?}")]
-    MissingMandatoryField { block: Block, field: String },
-    #[error("Error parsing SEQUENCE number {block:?}. Error: {error}")]
-    SequenceParseIntError { block: Block, error: ParseIntError },
+    #[error("Unsupported block tag {tag:?}, expected \"VEVENT\"")]
+    UnsupportedTag { tag: String },
+    #[error("Missing mandatory colon in line {line:?}")]
+    MissingColon { line: String },
+    #[error("Missing mandatory semicolon in line {line:?}")]
+    MissingSemicolon { line: String },
+    #[error("Missing mandatory field {field:?}")]
+    MissingMandatoryField { field: String },
+    #[error("Error parsing SEQUENCE number in line {line:?}. Error: {error}")]
+    SequenceParseIntError { line: String, error: ParseIntError },
+    #[error("Block parse error")]
+    BlockParseError(#[from] BlockParseError),
     #[error("RRule parse error")]
     RRuleParseError(#[from] RRuleParseError),
     #[error("TzIdDateTime parse error")]
@@ -129,41 +132,47 @@ pub enum VEventParseError {
 }
 
 impl VEventParseError {
-    pub fn missing_colon(block: Block) -> Self {
-        VEventParseError::MissingColon { block }
+    pub fn missing_colon(line: impl Into<String>) -> Self {
+        VEventParseError::MissingColon { line: line.into() }
     }
-    pub fn missing_semicolon(block: Block) -> Self {
-        VEventParseError::MissingSemicolon { block }
+    pub fn missing_semicolon(line: impl Into<String>) -> Self {
+        VEventParseError::MissingSemicolon { line: line.into() }
     }
-    pub fn missing_mandatory_field(block: Block, field: impl Into<String>) -> Self {
+    pub fn missing_mandatory_field(field: impl Into<String>) -> Self {
         VEventParseError::MissingMandatoryField {
             field: field.into(),
-            block,
         }
     }
-    pub fn sequence_parse_int_error(block: Block, error: ParseIntError) -> Self {
-        VEventParseError::SequenceParseIntError { block, error }
+    pub fn sequence_parse_int_error(line: impl Into<String>, error: ParseIntError) -> Self {
+        VEventParseError::SequenceParseIntError {
+            line: line.into(),
+            error,
+        }
     }
 }
 
-// 10. VTimezoneParseError (formerly in vtimezone.rs)
-#[derive(Error, Debug)]
+// 10. VTimezoneParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum VTimezoneParseError {
+    #[error("Unsupported block tag {tag:?}, expected \"VTIMEZONE\"")]
+    UnsupportedTag { tag: String },
     #[error("TZID tag not found")]
     TZIDTagNotFound,
+    #[error("Block parse error")]
+    BlockParseError(#[from] BlockParseError),
     #[error("VTimezoneOffset parse error")]
     VTimezoneOffsetParseError(#[from] VTimezoneOffsetParseError),
 }
 
-// 11. VTimezoneOffsetParseError (formerly in vtimezone.rs)
-#[derive(Error, Debug)]
+// 11. VTimezoneOffsetParseError
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum VTimezoneOffsetParseError {
-    #[error("Missing mandatory semicolon (block {block:?})")]
-    MissingSemicolon { block: Block },
-    #[error("Missing mandatory field {field:?}. Block: {block:?}")]
-    MissingMandatoryField { block: Block, field: &'static str },
-    #[error("Unsupported tag {tag:?}, Block: {block:?}")]
-    UnsupportedTag { block: Block, tag: String },
+    #[error("Missing mandatory colon in line {line:?}")]
+    MissingColon { line: String },
+    #[error("Missing mandatory field {field:?}")]
+    MissingMandatoryField { field: &'static str },
+    #[error("Unsupported tag {tag:?}")]
+    UnsupportedTag { tag: String },
     #[error("Invalid UTC offset: {offset:?}")]
     InvalidOffset { offset: String },
     #[error("Chrono parse error")]

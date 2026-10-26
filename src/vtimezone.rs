@@ -2,14 +2,15 @@ use crate::errors::{VTimezoneOffsetParseError, VTimezoneParseError};
 use crate::property::ContentLine;
 use crate::{block::Block, rrule::RRule};
 use chrono::{FixedOffset, NaiveDate};
+use std::str::FromStr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VTimezone {
     pub tz_id: String,
     pub offsets: Vec<VTimezoneOffset>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VTimezoneOffset {
     pub tz_name: Option<String>,
     pub tz_offset_from: FixedOffset,
@@ -66,10 +67,31 @@ pub fn parse_utc_offset(s: &str) -> Result<FixedOffset, VTimezoneOffsetParseErro
     })
 }
 
+impl TryFrom<&str> for VTimezone {
+    type Error = VTimezoneParseError;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        let block = Block::try_from(s)?;
+        Self::try_from(block)
+    }
+}
+
+impl FromStr for VTimezone {
+    type Err = VTimezoneParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
+    }
+}
+
 impl TryFrom<Block> for VTimezone {
     type Error = VTimezoneParseError;
 
     fn try_from(block: Block) -> Result<Self, Self::Error> {
+        if block.name != "VTIMEZONE" {
+            return Err(VTimezoneParseError::UnsupportedTag { tag: block.name });
+        }
+
         let tz_id = block
             .inner_lines
             .iter()
@@ -100,11 +122,8 @@ impl TryFrom<Block> for VTimezoneOffset {
         let mut rrule = None;
 
         for s in &block.inner_lines {
-            let prop = ContentLine::parse(s).ok_or_else(|| {
-                VTimezoneOffsetParseError::MissingSemicolon {
-                    block: block.to_owned(),
-                }
-            })?;
+            let prop = ContentLine::parse(s)
+                .ok_or_else(|| VTimezoneOffsetParseError::MissingColon { line: s.to_owned() })?;
 
             match prop.name {
                 "TZNAME" => tz_name = Some(prop.value.to_owned()),
@@ -122,22 +141,16 @@ impl TryFrom<Block> for VTimezoneOffset {
 
         Ok(Self {
             tz_name,
-            tz_offset_from: tz_offset_from.ok_or_else(|| {
+            tz_offset_from: tz_offset_from.ok_or(
                 VTimezoneOffsetParseError::MissingMandatoryField {
-                    block: block.to_owned(),
                     field: "TZOFFSETFROM",
-                }
+                },
+            )?,
+            tz_offset_to: tz_offset_to.ok_or(VTimezoneOffsetParseError::MissingMandatoryField {
+                field: "TZOFFSETTO",
             })?,
-            tz_offset_to: tz_offset_to.ok_or_else(|| {
-                VTimezoneOffsetParseError::MissingMandatoryField {
-                    block: block.to_owned(),
-                    field: "TZOFFSETTO",
-                }
-            })?,
-            dt_start: dt_start.ok_or_else(|| VTimezoneOffsetParseError::MissingMandatoryField {
-                block: block.to_owned(),
-                field: "DTSTART",
-            })?,
+            dt_start: dt_start
+                .ok_or(VTimezoneOffsetParseError::MissingMandatoryField { field: "DTSTART" })?,
             rrule,
         })
     }

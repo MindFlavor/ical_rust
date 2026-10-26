@@ -1,6 +1,7 @@
 use crate::{errors::BlockParseError, ical_line_parser::ICalLineParser};
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Block {
     pub name: String,
     pub inner_lines: Vec<String>,
@@ -74,6 +75,14 @@ impl TryFrom<&str> for Block {
 
     fn try_from(text: &str) -> Result<Self, Self::Error> {
         Self::from_lines(ICalLineParser::new(text))
+    }
+}
+
+impl FromStr for Block {
+    type Err = BlockParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 

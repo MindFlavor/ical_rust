@@ -5,8 +5,9 @@ use crate::errors::{DateIntersectError, VCalendarParseError};
 use crate::vevent::OccurrenceResult;
 use crate::vtimezone::VTimezone;
 use std::ops::Range;
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VCalendar {
     pub timezones: Vec<VTimezone>,
     pub events: Vec<VEvent>,
@@ -53,6 +54,14 @@ impl TryFrom<&str> for VCalendar {
     fn try_from(whole_text: &str) -> Result<Self, Self::Error> {
         let block = Block::try_from(whole_text)?;
         block.try_into()
+    }
+}
+
+impl FromStr for VCalendar {
+    type Err = VCalendarParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s)
     }
 }
 
@@ -829,5 +838,32 @@ END:VCALENDAR";
         assert_eq!(next.len(), 2);
         assert_eq!(next[0].1.occurrence.start.day(), 2);
         assert_eq!(next[1].1.occurrence.start.day(), 2);
+    }
+
+    #[test]
+    fn test_improvement6_from_str_eq_and_lightweight_errors() {
+        let ev_str = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:Direct Event Parse\r\n\
+END:VEVENT";
+
+        let ev1: VEvent = ev_str.parse().unwrap();
+        let ev2 = VEvent::try_from(ev_str).unwrap();
+        assert_eq!(ev1, ev2);
+
+        let cal_str = format!("BEGIN:VCALENDAR\r\n{ev_str}\r\nEND:VCALENDAR");
+        let cal1: VCalendar = cal_str.parse().unwrap();
+        let cal2 = VCalendar::try_from(cal_str.as_str()).unwrap();
+        assert_eq!(cal1, cal2);
+
+        // Verify lightweight error equality and clone
+        let missing_summary = "BEGIN:VEVENT\r\nDTSTART:20230101\r\nEND:VEVENT";
+        let err = missing_summary.parse::<VEvent>().unwrap_err();
+        assert_eq!(
+            err.clone(),
+            crate::errors::VEventParseError::MissingMandatoryField {
+                field: "SUMMARY".to_string()
+            }
+        );
     }
 }

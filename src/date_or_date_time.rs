@@ -298,10 +298,6 @@ impl DateOrDateTime {
         }
     }
 
-    pub fn equals_date(self, date: DateTime<Utc>) -> bool {
-        self.as_datetime() == date
-    }
-
     pub fn equals_date_time(self, date_time: DateTime<Utc>) -> bool {
         self.as_datetime() == date_time
     }
@@ -357,10 +353,6 @@ impl DateOrDateTime {
                 tz,
             },
         }
-    }
-
-    pub fn date(self) -> DateTime<Utc> {
-        self.as_datetime()
     }
 
     pub fn year(&self) -> i32 {
