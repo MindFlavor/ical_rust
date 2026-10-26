@@ -3,6 +3,7 @@ use crate::{
     date_or_date_time::DateOrDateTime,
     errors::RRuleParseError,
     frequency::Frequency,
+    vevent_iterator::VEventIterator,
 };
 use std::{fmt, str::FromStr};
 
@@ -20,6 +21,7 @@ pub struct RRule {
 }
 
 impl RRule {
+    #[must_use]
     pub fn is_out_of_count(&self, count: u32) -> bool {
         log::trace!(
             "is_out_of_count(self == {:?}, count == {}) called",
@@ -31,9 +33,35 @@ impl RRule {
             .unwrap_or(false)
     }
 
+    #[must_use]
     pub fn is_expired(&self, dt: DateOrDateTime) -> bool {
         log::debug!("is_expired(self == {:?}, dt == {:?}) called", self, dt);
         self.until.map(|until| dt > until).unwrap_or(false)
+    }
+
+    pub fn occurrences_from(
+        &self,
+        dt_start: DateOrDateTime,
+    ) -> impl Iterator<Item = DateOrDateTime> + '_ {
+        let mut last_occurrence: Option<DateOrDateTime> = None;
+        let mut count: u32 = 0;
+        std::iter::from_fn(move || {
+            if self.is_out_of_count(count) {
+                return None;
+            }
+            let next = match last_occurrence {
+                None => {
+                    if self.is_expired(dt_start) {
+                        return None;
+                    }
+                    Some(dt_start)
+                }
+                Some(last) => VEventIterator::next_rrule_occurrence(dt_start, last, self),
+            }?;
+            last_occurrence = Some(next);
+            count += 1;
+            Some(next)
+        })
     }
 }
 

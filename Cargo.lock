@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "ical_rust"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "chrono",
  "chrono-tz",

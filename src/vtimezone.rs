@@ -1,7 +1,7 @@
 use crate::date_or_date_time::DateOrDateTime;
 use crate::errors::{VTimezoneOffsetParseError, VTimezoneParseError};
 use crate::property::ContentLine;
-use crate::{VEvent, block::Block, rrule::RRule};
+use crate::{block::Block, rrule::RRule};
 use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use std::str::FromStr;
 
@@ -22,6 +22,7 @@ pub struct VTimezoneOffset {
 }
 
 impl VTimezone {
+    #[must_use]
     pub fn offset_at(&self, local: NaiveDateTime) -> Option<FixedOffset> {
         let mut best: Option<(NaiveDateTime, FixedOffset)> = None;
 
@@ -36,29 +37,10 @@ impl VTimezone {
                     utc: start_dt.and_utc(),
                     tz: None,
                 };
-                let dummy_event = VEvent {
-                    uid: None,
-                    recurrence_id: None,
-                    dt_created: start_dodt,
-                    dt_last_modified: start_dodt,
-                    dt_start: start_dodt,
-                    dt_end: start_dodt,
-                    dt_stamp: start_dodt,
-                    summary: String::new(),
-                    description: None,
-                    rrule: Some(rrule.clone()),
-                    rdates: Vec::new(),
-                    exdates: Vec::new(),
-                    overridden_dates: Vec::new(),
-                    sequence: 0,
-                    status: None,
-                    organizer: None,
-                    google_conference_url: None,
-                };
-                dummy_event
-                    .into_iter()
+                rrule
+                    .occurrences_from(start_dodt)
                     .take(10_000)
-                    .map(|occ| occ.start.as_datetime().naive_utc())
+                    .map(|occ| occ.as_datetime().naive_utc())
                     .take_while(|&dt| dt <= local)
                     .last()
                     .unwrap_or(start_dt)

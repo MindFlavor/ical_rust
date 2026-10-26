@@ -178,13 +178,13 @@ impl<'a> VEventIterator<'a> {
         Self::apply_by_set_pos(all, &rrule.by_set_pos)
     }
 
-    fn get_next_occurrence_according_to_rule(
-        &mut self,
+    pub(crate) fn next_rrule_occurrence(
+        dt_start: DateOrDateTime,
         last_occurrence: DateOrDateTime,
         rrule: &RRule,
     ) -> Option<DateOrDateTime> {
         let last_occurrence = Self::to_wall_clock(last_occurrence);
-        let dt_start_wall = Self::to_wall_clock(self.event.dt_start);
+        let dt_start_wall = Self::to_wall_clock(dt_start);
         let interval = rrule.interval.max(1);
 
         let wall_next = match rrule.frequency {
@@ -304,11 +304,21 @@ impl<'a> VEventIterator<'a> {
 
         let next_occurrence = Self::from_wall_clock(wall_next);
         if !rrule.is_expired(next_occurrence) {
-            self.last_occurrence = Some(next_occurrence);
-            self.last_occurrence
+            Some(next_occurrence)
         } else {
             None
         }
+    }
+
+    fn get_next_occurrence_according_to_rule(
+        &mut self,
+        last_occurrence: DateOrDateTime,
+        rrule: &RRule,
+    ) -> Option<DateOrDateTime> {
+        let next_occurrence =
+            Self::next_rrule_occurrence(self.event.dt_start, last_occurrence, rrule)?;
+        self.last_occurrence = Some(next_occurrence);
+        self.last_occurrence
     }
 
     fn get_next_occurrence_according_to_rule_and_iterations(&mut self) -> Option<DateOrDateTime> {
