@@ -119,6 +119,10 @@ pub enum VEventParseError {
     MissingSemicolon { line: String },
     #[error("Missing mandatory field {field:?}")]
     MissingMandatoryField { field: String },
+    #[error("VEVENT cannot specify both DTEND and DURATION")]
+    BothDtEndAndDurationSpecified,
+    #[error("Invalid DURATION value: {duration:?}")]
+    InvalidDuration { duration: String },
     #[error("Error parsing SEQUENCE number in line {line:?}. Error: {error}")]
     SequenceParseIntError { line: String, error: ParseIntError },
     #[error("Block parse error")]

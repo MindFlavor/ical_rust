@@ -2,7 +2,7 @@ use crate::{
     block::Block,
     date_or_date_time::{DateOrDateTime, EventOverlap},
     errors::{DateIntersectError, VEventParseError},
-    property::{ContentLine, unescape_ical_text},
+    property::{ContentLine, parse_ical_duration, unescape_ical_text},
     rrule::RRule,
     vevent_iterator::VEventIterator,
 };
@@ -12,6 +12,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VEvent {
+    pub uid: Option<String>,
     pub dt_created: DateOrDateTime,
     pub dt_last_modified: DateOrDateTime,
     pub dt_start: DateOrDateTime,
@@ -140,10 +141,12 @@ impl TryFrom<Block> for VEvent {
             return Err(VEventParseError::UnsupportedTag { tag: block.name });
         }
 
+        let mut uid = None;
         let mut dt_created = None;
         let mut dt_last_modified = None;
         let mut dt_start: Option<DateOrDateTime> = None;
         let mut dt_end = None;
+        let mut duration = None;
         let mut dt_stamp = None;
         let mut summary = None;
         let mut description = None;
@@ -159,6 +162,9 @@ impl TryFrom<Block> for VEvent {
                 ContentLine::parse(line).ok_or_else(|| VEventParseError::missing_colon(line))?;
 
             match prop.name {
+                "UID" => {
+                    uid = Some(unescape_ical_text(prop.value));
+                }
                 "LAST-MODIFIED" => {
                     dt_last_modified = Some(DateOrDateTime::from_params_and_value(
                         &prop.params,
@@ -176,6 +182,13 @@ impl TryFrom<Block> for VEvent {
                         &prop.params,
                         prop.value,
                     )?);
+                }
+                "DURATION" => {
+                    duration = Some(parse_ical_duration(prop.value).ok_or_else(|| {
+                        VEventParseError::InvalidDuration {
+                            duration: prop.value.to_owned(),
+                        }
+                    })?);
                 }
                 "CREATED" => {
                     dt_created = Some(DateOrDateTime::from_params_and_value(
@@ -226,14 +239,24 @@ impl TryFrom<Block> for VEvent {
         let dt_start =
             dt_start.ok_or_else(|| VEventParseError::missing_mandatory_field("DTSTART"))?;
         let dt_stamp = dt_stamp.unwrap_or(dt_start);
+        let dt_end = match (dt_end, duration) {
+            (Some(_), Some(_)) => return Err(VEventParseError::BothDtEndAndDurationSpecified),
+            (Some(end), None) => end,
+            (None, Some(dur)) => dt_start + dur,
+            (None, None) => match dt_start {
+                DateOrDateTime::WholeDay(d) => DateOrDateTime::WholeDay(d + Duration::days(1)),
+                DateOrDateTime::DateTime { .. } => dt_start,
+            },
+        };
 
         Ok(VEvent {
+            uid,
             dt_last_modified: dt_last_modified.unwrap_or(dt_stamp),
             dt_start,
-            dt_end: dt_end.unwrap_or(dt_start),
+            dt_end,
             dt_created: dt_created.unwrap_or(dt_stamp),
             dt_stamp,
-            summary: summary.ok_or_else(|| VEventParseError::missing_mandatory_field("SUMMARY"))?,
+            summary: summary.unwrap_or_default(),
             description,
             rrule,
             exdates,

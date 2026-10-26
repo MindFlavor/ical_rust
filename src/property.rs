@@ -96,6 +96,83 @@ pub fn unescape_ical_text(s: &str) -> String {
     out
 }
 
+pub fn parse_ical_duration(s: &str) -> Option<chrono::Duration> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    let (sign, rest) = if let Some(r) = s.strip_prefix('-') {
+        (-1i64, r)
+    } else if let Some(r) = s.strip_prefix('+') {
+        (1i64, r)
+    } else {
+        (1i64, s)
+    };
+
+    let rest = rest.strip_prefix('P').or_else(|| rest.strip_prefix('p'))?;
+    if rest.is_empty() {
+        return None;
+    }
+
+    // Check dur-week: <n>W
+    if let Some(weeks_str) = rest.strip_suffix('W').or_else(|| rest.strip_suffix('w')) {
+        let weeks: i64 = weeks_str.parse().ok()?;
+        return Some(chrono::Duration::weeks(sign * weeks));
+    }
+
+    let mut total_seconds = 0i64;
+    let mut has_any = false;
+
+    let (date_part, time_part) = if let Some((d, t)) = rest.split_once(['T', 't']) {
+        if t.is_empty() {
+            return None;
+        }
+        (d, Some(t))
+    } else {
+        (rest, None)
+    };
+
+    if !date_part.is_empty() {
+        let days_str = date_part
+            .strip_suffix('D')
+            .or_else(|| date_part.strip_suffix('d'))?;
+        let days: i64 = days_str.parse().ok()?;
+        total_seconds += days * 86_400;
+        has_any = true;
+    }
+
+    if let Some(mut t) = time_part {
+        if let Some(idx) = t.find(['H', 'h']) {
+            let hours: i64 = t[..idx].parse().ok()?;
+            total_seconds += hours * 3_600;
+            t = &t[idx + 1..];
+            has_any = true;
+        }
+        if let Some(idx) = t.find(['M', 'm']) {
+            let mins: i64 = t[..idx].parse().ok()?;
+            total_seconds += mins * 60;
+            t = &t[idx + 1..];
+            has_any = true;
+        }
+        if let Some(idx) = t.find(['S', 's']) {
+            let secs: i64 = t[..idx].parse().ok()?;
+            total_seconds += secs;
+            t = &t[idx + 1..];
+            has_any = true;
+        }
+        if !t.is_empty() {
+            return None;
+        }
+    }
+
+    if !has_any {
+        return None;
+    }
+
+    Some(chrono::Duration::seconds(sign * total_seconds))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

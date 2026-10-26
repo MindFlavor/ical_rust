@@ -857,13 +857,47 @@ END:VEVENT";
         assert_eq!(cal1, cal2);
 
         // Verify lightweight error equality and clone
-        let missing_summary = "BEGIN:VEVENT\r\nDTSTART:20230101\r\nEND:VEVENT";
-        let err = missing_summary.parse::<VEvent>().unwrap_err();
+        let missing_dtstart = "BEGIN:VEVENT\r\nSUMMARY:No Start\r\nEND:VEVENT";
+        let err = missing_dtstart.parse::<VEvent>().unwrap_err();
         assert_eq!(
             err.clone(),
             crate::errors::VEventParseError::MissingMandatoryField {
-                field: "SUMMARY".to_string()
+                field: "DTSTART".to_string()
             }
         );
+    }
+
+    #[test]
+    fn test_rfc1_vevent_duration_default_date_end_optional_summary_and_uid() {
+        // 1. VEVENT with DURATION (PT1H30M), UID, and no SUMMARY
+        let ev_with_duration = "BEGIN:VEVENT\r\n\
+UID:event-123@example.com\r\n\
+DTSTART:20230101T090000Z\r\n\
+DURATION:PT1H30M\r\n\
+END:VEVENT";
+        let ev: VEvent = ev_with_duration.parse().unwrap();
+        assert_eq!(ev.uid.as_deref(), Some("event-123@example.com"));
+        assert_eq!(ev.summary, "");
+        assert_eq!(ev.dt_end - ev.dt_start, chrono::Duration::minutes(90));
+
+        // 2. VEVENT with WholeDay DTSTART and no DTEND/DURATION defaults to 1 day
+        let all_day_ev = "BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20230101\r\n\
+SUMMARY:New Year\r\n\
+END:VEVENT";
+        let ev_day: VEvent = all_day_ev.parse().unwrap();
+        assert_eq!(
+            ev_day.dt_end,
+            DateOrDateTime::WholeDay(chrono::NaiveDate::from_ymd_opt(2023, 1, 2).unwrap())
+        );
+
+        // 3. VEVENT with both DTEND and DURATION must fail per RFC 5545 §3.6.1
+        let invalid_both = "BEGIN:VEVENT\r\n\
+DTSTART:20230101T090000Z\r\n\
+DTEND:20230101T100000Z\r\n\
+DURATION:PT1H\r\n\
+SUMMARY:Conflict\r\n\
+END:VEVENT";
+        assert!(invalid_both.parse::<VEvent>().is_err());
     }
 }
