@@ -762,4 +762,21 @@ END:VCALENDAR";
         assert_eq!((occ[2].start.month(), occ[2].start.day()), (2, 6));
         assert_eq!((occ[3].start.month(), occ[3].start.day()), (2, 20));
     }
+
+    #[test]
+    fn test_improvement4_content_line_multi_params_and_text_unescaping() {
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE-TIME;TZID=\"Europe/Rome\":20230101T090000\r\n\
+SUMMARY;LANGUAGE=en-US:Meeting\\, Planning\\; Phase 1\\nAgenda\r\n\
+DESCRIPTION:Line 1\\NLine 2\\\\End\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let ev = &cal.events[0];
+        assert_eq!(ev.dt_start.timezone(), Some(chrono_tz::Europe::Rome));
+        assert_eq!(ev.summary, "Meeting, Planning; Phase 1\nAgenda");
+        assert_eq!(ev.description.as_deref(), Some("Line 1\nLine 2\\End"));
+    }
 }

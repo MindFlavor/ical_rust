@@ -1,5 +1,6 @@
 use crate::by_day::WeekdayRule;
 use crate::errors::{DateIntersectError, SubstitutionError, TzIdDateTimeParseError};
+use crate::property::split_outside_quotes;
 use chrono::{
     DateTime, Datelike, Duration, FixedOffset, Local, LocalResult, NaiveDate, NaiveDateTime,
     TimeZone, Timelike, Utc, Weekday,
@@ -60,21 +61,65 @@ impl TryFrom<&str> for DateOrDateTime {
     type Error = TzIdDateTimeParseError;
 
     fn try_from(line: &str) -> Result<Self, Self::Error> {
-        if let Some(rest) = line.strip_prefix("TZID=") {
-            let mut tokens = rest.split(':');
+        let mut in_quotes = false;
+        let mut colon_idx = None;
+        for (idx, b) in line.bytes().enumerate() {
+            if b == b'"' {
+                in_quotes = !in_quotes;
+            } else if b == b':' && !in_quotes {
+                colon_idx = Some(idx);
+                break;
+            }
+        }
 
-            let tz_str = tokens
-                .next()
-                .ok_or(TzIdDateTimeParseError::MissingTimeZonePart)?;
+        if let Some(colon_idx) = colon_idx {
+            let params_str = &line[..colon_idx];
+            let value = &line[colon_idx + 1..];
+            let mut params = Vec::new();
+            for part in split_outside_quotes(params_str, b';') {
+                if let Some((k, v)) = part.split_once('=') {
+                    params.push((k, v.trim_matches('"')));
+                } else {
+                    return Err(TzIdDateTimeParseError::MissingTZIDToken);
+                }
+            }
+            Self::from_params_and_value(&params, value)
+        } else if line.contains('=') {
+            Err(TzIdDateTimeParseError::MissingDateTimePart)
+        } else {
+            Ok(Self::parse_value_str(line)?)
+        }
+    }
+}
+
+impl DateOrDateTime {
+    pub fn from_params_and_value(
+        params: &[(&str, &str)],
+        value: &str,
+    ) -> Result<Self, TzIdDateTimeParseError> {
+        let value_type = params
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("VALUE"))
+            .map(|(_, v)| *v);
+        let tzid = params
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("TZID"))
+            .map(|(_, v)| *v);
+
+        if value_type.is_some_and(|v| v.eq_ignore_ascii_case("DATE")) {
+            let date = NaiveDate::parse_from_str(value, "%Y%m%d")?;
+            Ok(Self::WholeDay(date))
+        } else if let Some(tz_str) = tzid {
+            if tz_str.is_empty() {
+                return Err(TzIdDateTimeParseError::MissingTimeZonePart);
+            }
+            if value.is_empty() {
+                return Err(TzIdDateTimeParseError::MissingDateTimePart);
+            }
             let tz: Tz = tz_str.parse::<Tz>().map_err(|e: chrono_tz::ParseError| {
                 TzIdDateTimeParseError::InvalidTimeZone(e.to_string())
             })?;
-
-            let date_time_str = tokens
-                .next()
-                .ok_or(TzIdDateTimeParseError::MissingDateTimePart)?;
-
-            let naive_dt = NaiveDateTime::parse_from_str(date_time_str, "%Y%m%dT%H%M%S")?;
+            let naive_dt = NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%S")?;
 
             if let LocalResult::Single(d) = tz.from_local_datetime(&naive_dt) {
                 Ok(Self::DateTime {
@@ -84,18 +129,14 @@ impl TryFrom<&str> for DateOrDateTime {
             } else {
                 Err(TzIdDateTimeParseError::AmbiguousTimeZone)
             }
-        } else if let Some(rest) = line.strip_prefix("VALUE=DATE:") {
-            let date = NaiveDate::parse_from_str(rest, "%Y%m%d")?;
-            Ok(Self::WholeDay(date))
-        } else if !line.contains(':') && !line.contains('=') {
-            Ok(Self::parse_value_str(line)?)
+        } else if value_type.is_some_and(|v| v.eq_ignore_ascii_case("DATE-TIME"))
+            || params.is_empty()
+        {
+            Ok(Self::parse_value_str(value)?)
         } else {
             Err(TzIdDateTimeParseError::MissingTZIDToken)
         }
     }
-}
-
-impl DateOrDateTime {
     pub fn whole_day(date: NaiveDate) -> Self {
         Self::WholeDay(date)
     }

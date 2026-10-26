@@ -2,6 +2,7 @@ use crate::{
     block::Block,
     date_or_date_time::{DateOrDateTime, EventOverlap},
     errors::{DateIntersectError, VEventParseError},
+    property::{ContentLine, unescape_ical_text},
     rrule::RRule,
     vevent_iterator::VEventIterator,
 };
@@ -97,126 +98,66 @@ impl TryFrom<Block> for VEvent {
         let mut google_conference_url = None;
 
         for line in block.inner_lines.iter() {
-            let idx_colon = line.find(':').unwrap_or(line.len());
-            let name_and_params = &line[0..idx_colon];
-            let extra = if idx_colon + 1 < line.len() {
-                Some(&line[idx_colon + 1..])
-            } else {
-                None
-            };
+            let prop = ContentLine::parse(line)
+                .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?;
 
-            let (tag, after_semicolon) = match name_and_params.find(';') {
-                Some(idx_semi) => {
-                    let after = if idx_semi + 1 < line.len() {
-                        Some(&line[idx_semi + 1..])
-                    } else {
-                        None
-                    };
-                    (&name_and_params[0..idx_semi], after)
-                }
-                None => (name_and_params, None),
-            };
-
-            match tag {
+            match prop.name {
                 "LAST-MODIFIED" => {
-                    dt_last_modified =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    dt_last_modified = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "DTSTART" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        dt_start = Some(semi_extra.parse::<DateOrDateTime>()?);
-                    } else {
-                        dt_start =
-                            Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                                VEventParseError::missing_colon(block.clone())
-                            })?)?);
-                    }
+                    dt_start = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "DTEND" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        dt_end = Some(semi_extra.parse::<DateOrDateTime>()?);
-                    } else {
-                        dt_end =
-                            Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                                VEventParseError::missing_colon(block.clone())
-                            })?)?);
-                    }
+                    dt_end = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "CREATED" => {
-                    dt_created =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    dt_created = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "DTSTAMP" => {
-                    dt_stamp =
-                        Some(string_to_date_or_datetime(extra.ok_or_else(|| {
-                            VEventParseError::missing_colon(block.clone())
-                        })?)?);
+                    dt_stamp = Some(DateOrDateTime::from_params_and_value(
+                        &prop.params,
+                        prop.value,
+                    )?);
                 }
                 "SUMMARY" => {
-                    summary = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .to_string(),
-                    );
+                    summary = Some(unescape_ical_text(prop.value));
                 }
-                "DESCRIPTION" => description = extra.map(|e| e.to_string()),
+                "DESCRIPTION" => {
+                    description = Some(unescape_ical_text(prop.value));
+                }
                 "SEQUENCE" => {
-                    sequence = extra.map(|e| e.parse::<u32>()).transpose().map_err(|e| {
+                    sequence = Some(prop.value.parse::<u32>().map_err(|e| {
                         VEventParseError::sequence_parse_int_error(block.clone(), e)
-                    })?;
+                    })?);
                 }
                 "RRULE" => {
-                    rrule = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .parse::<RRule>()?,
-                    );
+                    rrule = Some(prop.value.parse::<RRule>()?);
                 }
                 "STATUS" => {
-                    status = Some(
-                        extra
-                            .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                            .to_string(),
-                    );
+                    status = Some(unescape_ical_text(prop.value));
                 }
                 "X-GOOGLE-CONFERENCE" => {
-                    google_conference_url = extra.map(|e| e.to_string());
+                    google_conference_url = Some(prop.value.to_string());
                 }
                 "ORGANIZER" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        organizer = Some(semi_extra.to_string());
-                    } else {
-                        organizer = Some(
-                            extra
-                                .ok_or_else(|| VEventParseError::missing_colon(block.clone()))?
-                                .to_string(),
-                        );
-                    }
+                    organizer = Some(prop.raw_after_semicolon.unwrap_or(prop.value).to_string());
                 }
                 "EXDATE" => {
-                    if let Some(semi_extra) = after_semicolon {
-                        log::trace!("parsing EXDATE ==> {}", semi_extra);
-
-                        if let Some(colon_idx) = semi_extra.find(':') {
-                            let prefix = &semi_extra[0..=colon_idx];
-                            let values_str = &semi_extra[colon_idx + 1..];
-                            for val in values_str.split(',').filter(|s| !s.is_empty()) {
-                                let reconstructed = format!("{}{}", prefix, val);
-                                exdates.push(DateOrDateTime::try_from(reconstructed.as_str())?);
-                            }
-                        } else {
-                            exdates.push(DateOrDateTime::try_from(semi_extra)?);
-                        }
-                    } else {
-                        let vals =
-                            extra.ok_or_else(|| VEventParseError::missing_colon(block.clone()))?;
-                        for val in vals.split(',').filter(|s| !s.is_empty()) {
-                            exdates.push(string_to_date_or_datetime(val)?);
-                        }
+                    for val in prop.value.split(',').filter(|s| !s.is_empty()) {
+                        exdates.push(DateOrDateTime::from_params_and_value(&prop.params, val)?);
                     }
                 }
                 _ => {} // ignore

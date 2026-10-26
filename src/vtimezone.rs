@@ -1,11 +1,12 @@
 use crate::errors::{VTimezoneOffsetParseError, VTimezoneParseError};
+use crate::property::ContentLine;
 use crate::{block::Block, rrule::RRule};
 use chrono::NaiveDate;
 
 #[derive(Debug, Clone)]
 pub struct VTimezone {
     pub tz_id: String,
-    pub offsets: Vec<VTimezoneOffset>, // TODO: populate!
+    pub offsets: Vec<VTimezoneOffset>,
 }
 
 #[derive(Debug, Clone)]
@@ -24,9 +25,10 @@ impl TryFrom<Block> for VTimezone {
         let tz_id = block
             .inner_lines
             .iter()
-            .find_map(|l| l.strip_prefix("TZID:"))
-            .ok_or(VTimezoneParseError::TZIDTagNotFound)?
-            .to_owned();
+            .filter_map(|l| ContentLine::parse(l))
+            .find(|p| p.name == "TZID")
+            .map(|p| p.value.to_owned())
+            .ok_or(VTimezoneParseError::TZIDTagNotFound)?;
 
         let offsets = block
             .inner_blocks
@@ -49,28 +51,27 @@ impl TryFrom<Block> for VTimezoneOffset {
         let mut rrule = None;
 
         for s in &block.inner_lines {
-            let mut tokens = s.split(':');
-            let key = tokens
-                .next()
-                .ok_or_else(|| VTimezoneOffsetParseError::MissingSemicolon {
+            let prop = ContentLine::parse(s).ok_or_else(|| {
+                VTimezoneOffsetParseError::MissingSemicolon {
                     block: block.to_owned(),
-                })?;
-            let value = tokens.collect::<Vec<_>>().join(":");
-
-            match key {
-                "TZNAME" => tz_name = Some(value),
-                "TZOFFSETFROM" => tz_offset_from = Some(value),
-                "TZOFFSETTO" => tz_offset_to = Some(value),
-                "DTSTART" => {
-                    dt_start =
-                        Some(chrono::NaiveDateTime::parse_from_str(&value, "%Y%m%dT%H%M%S")?.date())
                 }
-                "RRULE" => rrule = Some(value.parse()?),
+            })?;
+
+            match prop.name {
+                "TZNAME" => tz_name = Some(prop.value.to_owned()),
+                "TZOFFSETFROM" => tz_offset_from = Some(prop.value.to_owned()),
+                "TZOFFSETTO" => tz_offset_to = Some(prop.value.to_owned()),
+                "DTSTART" => {
+                    dt_start = Some(
+                        chrono::NaiveDateTime::parse_from_str(prop.value, "%Y%m%dT%H%M%S")?.date(),
+                    )
+                }
+                "RRULE" => rrule = Some(prop.value.parse()?),
 
                 _ => {
                     return Err(VTimezoneOffsetParseError::UnsupportedTag {
                         block: block.clone(),
-                        tag: key.to_owned(),
+                        tag: prop.name.to_owned(),
                     });
                 }
             }
