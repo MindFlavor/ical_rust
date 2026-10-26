@@ -7,6 +7,12 @@ use thiserror::Error;
 pub enum BlockParseError {
     #[error("Block must start with BEGIN:")]
     BlockNotStartingWithBEGIN,
+    #[error("Unclosed block: {name:?}")]
+    UnclosedBlock { name: String },
+    #[error("Mismatched END tag: expected {expected:?}, found {found:?}")]
+    MismatchedEndTag { expected: String, found: String },
+    #[error("Unexpected content after END tag")]
+    UnexpectedContentAfterEnd,
 }
 
 // 2. ByDayParseError (formerly in by_day.rs)

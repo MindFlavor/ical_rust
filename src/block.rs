@@ -36,16 +36,31 @@ impl<'a> TryFrom<&'a [String]> for Block {
                 let line = &lines[position];
                 position += 1;
 
+                if depth == 0 {
+                    if line.trim().is_empty() {
+                        continue;
+                    } else {
+                        return Err(BlockParseError::UnexpectedContentAfterEnd);
+                    }
+                }
+
                 if line.starts_with("BEGIN:") {
                     if inner_block_start.is_none() {
                         // only save the first one!
                         inner_block_start = Some(position - 1);
                     }
                     depth += 1;
-                } else if line.starts_with("END:") {
+                } else if let Some(end_name) = line.strip_prefix("END:") {
                     depth -= 1;
 
-                    if depth == 1 {
+                    if depth == 0 {
+                        if end_name != name {
+                            return Err(BlockParseError::MismatchedEndTag {
+                                expected: name.to_owned(),
+                                found: end_name.to_owned(),
+                            });
+                        }
+                    } else if depth == 1 {
                         // process inner!
                         log::trace!(
                             "About to go in {}..{}",
@@ -58,6 +73,12 @@ impl<'a> TryFrom<&'a [String]> for Block {
                 } else if depth == 1 {
                     inner_lines.push(line.to_owned());
                 }
+            }
+
+            if depth != 0 {
+                return Err(BlockParseError::UnclosedBlock {
+                    name: name.to_owned(),
+                });
             }
 
             Ok(Block {
@@ -83,5 +104,21 @@ mod tests {
             res,
             Err(BlockParseError::BlockNotStartingWithBEGIN)
         ));
+    }
+
+    #[test]
+    fn test_issue2_unclosed_and_mismatched_blocks_fail() {
+        let unclosed = vec!["BEGIN:VCALENDAR".to_string(), "BEGIN:VEVENT".to_string()];
+        assert!(Block::try_from(unclosed.as_slice()).is_err());
+
+        let mismatched = vec!["BEGIN:VCALENDAR".to_string(), "END:VEVENT".to_string()];
+        assert!(Block::try_from(mismatched.as_slice()).is_err());
+
+        let extra_end = vec![
+            "BEGIN:VCALENDAR".to_string(),
+            "END:VCALENDAR".to_string(),
+            "END:VCALENDAR".to_string(),
+        ];
+        assert!(Block::try_from(extra_end.as_slice()).is_err());
     }
 }
