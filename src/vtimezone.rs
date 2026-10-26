@@ -62,9 +62,10 @@ impl TryFrom<Block> for VTimezoneOffset {
                 "TZOFFSETFROM" => tz_offset_from = Some(value),
                 "TZOFFSETTO" => tz_offset_to = Some(value),
                 "DTSTART" => {
-                    dt_start = Some(NaiveDate::parse_from_str(&value, "%Y%m%dT%H%M%S").unwrap())
+                    dt_start =
+                        Some(chrono::NaiveDateTime::parse_from_str(&value, "%Y%m%dT%H%M%S")?.date())
                 }
-                "RRULE" => rrule = Some(value.parse().unwrap()),
+                "RRULE" => rrule = Some(value.parse()?),
 
                 _ => {
                     return Err(VTimezoneOffsetParseError::UnsupportedTag {
@@ -98,5 +99,38 @@ impl TryFrom<Block> for VTimezoneOffset {
             })?,
             rrule,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_issue3_malformed_dtstart_or_rrule_in_vtimezone_returns_err() {
+        let bad_dtstart_block = Block {
+            name: "STANDARD".to_string(),
+            inner_lines: vec![
+                "TZNAME:CET".to_string(),
+                "TZOFFSETFROM:+0200".to_string(),
+                "TZOFFSETTO:+0100".to_string(),
+                "DTSTART:INVALID_DATE".to_string(),
+            ],
+            inner_blocks: vec![],
+        };
+        assert!(VTimezoneOffset::try_from(bad_dtstart_block).is_err());
+
+        let bad_rrule_block = Block {
+            name: "STANDARD".to_string(),
+            inner_lines: vec![
+                "TZNAME:CET".to_string(),
+                "TZOFFSETFROM:+0200".to_string(),
+                "TZOFFSETTO:+0100".to_string(),
+                "DTSTART:19701025T030000".to_string(),
+                "RRULE:INVALID_RRULE".to_string(),
+            ],
+            inner_blocks: vec![],
+        };
+        assert!(VTimezoneOffset::try_from(bad_rrule_block).is_err());
     }
 }

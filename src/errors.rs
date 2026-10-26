@@ -154,4 +154,8 @@ pub enum VTimezoneOffsetParseError {
     MissingMandatoryField { block: Block, field: &'static str },
     #[error("Unsupported tag {tag:?}, Block: {block:?}")]
     UnsupportedTag { block: Block, tag: String },
+    #[error("Chrono parse error")]
+    ChronoParseError(#[from] chrono::ParseError),
+    #[error("RRule parse error")]
+    RRuleParseError(#[from] RRuleParseError),
 }
