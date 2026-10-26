@@ -14,6 +14,7 @@ pub struct VEvent {
     pub dt_created: DateOrDateTime,
     pub dt_last_modified: DateOrDateTime,
     pub dt_start: DateOrDateTime,
+    pub dt_start_tz: Option<chrono_tz::Tz>,
     pub dt_end: DateOrDateTime,
     pub dt_stamp: DateOrDateTime,
     pub summary: String,
@@ -89,6 +90,7 @@ impl TryFrom<Block> for VEvent {
         let mut dt_created = None;
         let mut dt_last_modified = None;
         let mut dt_start: Option<DateOrDateTime> = None;
+        let mut dt_start_tz: Option<chrono_tz::Tz> = None;
         let mut dt_end = None;
         let mut dt_stamp = None;
         let mut summary = None;
@@ -205,12 +207,12 @@ impl TryFrom<Block> for VEvent {
                     }
                 }
                 "DTSTART" => {
-                    dt_start = Some(
-                        extra
-                            .map(to_tziddate_or_date)
-                            .transpose()?
-                            .ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?,
-                    );
+                    let parsed = extra
+                        .map(|s| s.parse::<TzIdDateTime>())
+                        .transpose()?
+                        .ok_or_else(|| VEventParseError::missing_semicolon(block.clone()))?;
+                    dt_start_tz = Some(parsed.time_zone);
+                    dt_start = Some(parsed.date_time);
                 }
                 "DTEND" => {
                     dt_end = Some(
@@ -232,6 +234,7 @@ impl TryFrom<Block> for VEvent {
                 VEventParseError::missing_mandatory_field(block.clone(), "LAST-MODIFIED")
             })?,
             dt_start,
+            dt_start_tz,
             dt_end: dt_end.unwrap_or(dt_start), // if there is no DT_END tag, it means end is the same as start.
             dt_created: dt_created.ok_or_else(|| {
                 VEventParseError::missing_mandatory_field(block.clone(), "CREATED")

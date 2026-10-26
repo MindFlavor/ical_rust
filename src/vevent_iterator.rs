@@ -25,21 +25,39 @@ impl<'a> VEventIterator<'a> {
         }
     }
 
+    fn to_wall_clock(&self, dt: DateOrDateTime) -> DateOrDateTime {
+        match (dt, self.event.dt_start_tz) {
+            (DateOrDateTime::DateTime(utc_dt), Some(tz)) => {
+                let local = utc_dt.with_timezone(&tz).naive_local();
+                DateOrDateTime::DateTime(Utc.from_utc_datetime(&local))
+            }
+            _ => dt,
+        }
+    }
+
+    fn from_wall_clock(&self, dt: DateOrDateTime) -> DateOrDateTime {
+        match (dt, self.event.dt_start_tz) {
+            (DateOrDateTime::DateTime(wall_dt), Some(tz)) => {
+                let naive = wall_dt.naive_utc();
+                let utc_dt = tz
+                    .from_local_datetime(&naive)
+                    .earliest()
+                    .map(|d| d.with_timezone(&Utc))
+                    .unwrap_or(wall_dt);
+                DateOrDateTime::DateTime(utc_dt)
+            }
+            _ => dt,
+        }
+    }
+
     fn get_next_occurrence_according_to_rule(
         &mut self,
         last_occurrence: DateOrDateTime,
         rrule: &RRule,
     ) -> Option<DateOrDateTime> {
-        match rrule {
-            RRule::Yearly(_rrule) => {
-                let next_occurrence = last_occurrence.inc_year(1);
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
-                }
-            }
+        let last_occurrence = self.to_wall_clock(last_occurrence);
+        let wall_next = match rrule {
+            RRule::Yearly(_rrule) => last_occurrence.inc_year(1),
 
             RRule::YearlyByMonthByDay(rrule) => {
                 let next_occurrence = last_occurrence.next_by_day(&rrule.day);
@@ -47,12 +65,7 @@ impl<'a> VEventIterator<'a> {
                     && next_occurrence.month() == rrule.month as u32
                     && next_occurrence > last_occurrence
                 {
-                    if !rrule.is_expired(next_occurrence) {
-                        self.last_occurrence = Some(next_occurrence);
-                        self.last_occurrence
-                    } else {
-                        None
-                    }
+                    next_occurrence
                 } else {
                     let next_year = last_occurrence.year()
                         + rrule.common_options().interval.unwrap_or(1) as i32;
@@ -79,24 +92,11 @@ impl<'a> VEventIterator<'a> {
                         }
                     }
 
-                    if !rrule.is_expired(next_occurrence) {
-                        self.last_occurrence = Some(next_occurrence);
-                        self.last_occurrence
-                    } else {
-                        None
-                    }
+                    next_occurrence
                 }
             }
 
-            RRule::YearlyByMonthByMonthDay(_rrule) => {
-                let next_occurrence = last_occurrence.inc_year(1);
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
-                }
-            }
+            RRule::YearlyByMonthByMonthDay(_rrule) => last_occurrence.inc_year(1),
 
             RRule::MonthlyByMonthDay(rrule) => {
                 let mut year = last_occurrence.year();
@@ -113,7 +113,7 @@ impl<'a> VEventIterator<'a> {
                     date = Utc.with_ymd_and_hms(year, month, d, 0, 0, 0);
                 }
                 let target_date = date.unwrap();
-                let next_occurrence = match last_occurrence {
+                match last_occurrence {
                     DateOrDateTime::WholeDay(_) => DateOrDateTime::WholeDay(target_date),
                     DateOrDateTime::DateTime(dt) => DateOrDateTime::DateTime(
                         Utc.with_ymd_and_hms(
@@ -126,13 +126,6 @@ impl<'a> VEventIterator<'a> {
                         )
                         .unwrap(),
                     ),
-                };
-
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
                 }
             }
 
@@ -157,35 +150,20 @@ impl<'a> VEventIterator<'a> {
                     .unwrap();
 
                 // Calculate 1SU or -1SU... done in DateOrDatetime
-                let next_occurrence = next_month.next_by_day(&rrule.day);
-
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
-                }
+                next_month.next_by_day(&rrule.day)
             }
 
-            RRule::Weekly(rrule) => {
-                let next_occurrence = last_occurrence + Duration::days(7);
-
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
-                }
-            }
+            RRule::Weekly(_rrule) => last_occurrence + Duration::days(7),
 
             RRule::WeeklyByDay(rrule) => {
                 let interval = rrule.common_options().interval.unwrap_or(1) as i64;
                 let mut next_occurrence = last_occurrence.next_by_day(&rrule.day);
+                let dt_start_wall = self.to_wall_clock(self.event.dt_start);
 
                 loop {
-                    let dt_start_monday = self.event.dt_start.date()
+                    let dt_start_monday = dt_start_wall.date()
                         - Duration::days(
-                            self.event.dt_start.date().weekday().num_days_from_monday() as i64,
+                            dt_start_wall.date().weekday().num_days_from_monday() as i64
                         );
                     let next_monday = next_occurrence.date()
                         - Duration::days(
@@ -200,24 +178,18 @@ impl<'a> VEventIterator<'a> {
                     next_occurrence = next_occurrence.next_by_day(&rrule.day);
                 }
 
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
-                }
+                next_occurrence
             }
 
-            RRule::Daily(rrule) => {
-                let next_occurrence = last_occurrence + Duration::days(1);
+            RRule::Daily(_rrule) => last_occurrence + Duration::days(1),
+        };
 
-                if !rrule.is_expired(next_occurrence) {
-                    self.last_occurrence = Some(next_occurrence);
-                    self.last_occurrence
-                } else {
-                    None
-                }
-            }
+        let next_occurrence = self.from_wall_clock(wall_next);
+        if !rrule.is_expired(next_occurrence) {
+            self.last_occurrence = Some(next_occurrence);
+            self.last_occurrence
+        } else {
+            None
         }
     }
 

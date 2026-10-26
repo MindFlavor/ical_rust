@@ -431,4 +431,30 @@ END:VCALENDAR";
         assert_eq!(occurrences[3].start.month(), 1);
         assert_eq!(occurrences[3].start.day(), 19);
     }
+
+    #[test]
+    fn test_issue7_dst_transition_preserves_local_wall_clock_time() {
+        // Europe/Rome transitions from CET (UTC+1) to CEST (UTC+2) on 2023-03-26
+        let ics_content = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;TZID=Europe/Rome:20230325T090000\r\n\
+LAST-MODIFIED:20230325T080000Z\r\n\
+CREATED:20230325T080000Z\r\n\
+DTSTAMP:20230325T080000Z\r\n\
+SUMMARY:Morning Standup Across DST\r\n\
+SEQUENCE:0\r\n\
+RRULE:FREQ=DAILY;COUNT=2\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR";
+
+        let cal = VCalendar::try_from(ics_content).unwrap();
+        let event = &cal.events[0];
+        let occurrences: Vec<_> = event.into_iter().collect();
+        assert_eq!(occurrences.len(), 2);
+
+        // 2023-03-25 09:00 CET (UTC+1) == 08:00 UTC
+        assert_eq!(occurrences[0].start.hour(), 8);
+        // 2023-03-26 09:00 CEST (UTC+2) == 07:00 UTC
+        assert_eq!(occurrences[1].start.hour(), 7);
+    }
 }
